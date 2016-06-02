@@ -49,6 +49,7 @@ function gentooinstall_main
 			"timezone")     gentooinstall_phase_timezone;;
 			"locale")       gentooinstall_phase_locale;;
 			"update")       gentooinstall_phase_update;;
+			"vim")          gentooinstall_phase_vim;;
 			"packages")     gentooinstall_phase_packages;;
 			"plasma")       gentooinstall_phase_plasma;;
 			*)
@@ -184,12 +185,7 @@ function gentooinstall_phase_packages
 		source /etc/profile
 		
 		CONFIG_PROTECT_MASK="$CONFIG_PROTECT_MASK /etc/portage/package.use/zzzz-autounmask-write /etc/portage/package.accept_keywords"
-		
-		emerge --quiet --autounmask-write app-editors/vim || emerge --resume
-		if [ $? -eq 0 ]; then
-			eselect editor set vi
-		fi
-		
+
 		emerge --quiet --autounmask-write app-admin/syslog-ng || emerge --resume
 		if [ $? -eq 0 ]; then
 			rc-update add syslog-ng default
@@ -416,6 +412,22 @@ function gentooinstall_phase_verifyhash
 	echo "Success."
 }
 
+function gentooinstall_phase_vim
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		emerge --quiet app-editors/vim
+		if [ $? -eq 0 ]; then
+			eselect editor set vi
+		fi
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase packages
+	fi
+}
+
 #------------------------------------------------------------------------------
 # hard coded variables
 
@@ -435,7 +447,7 @@ ARCHITECTURE=amd64
 CHROOT=false
 DEVICE=/tmp/none
 DESTINATION=/mnt/gentoo
-PHASES="download,verifydigest,verifyhash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,packages"
+PHASES="download,verifydigest,verifyhash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,packages"
 TIMEZONE="UTC"
 
 #------------------------------------------------------------------------------
