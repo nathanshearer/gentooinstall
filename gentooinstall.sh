@@ -50,6 +50,7 @@ function gentooinstall_main
 			"locale")       gentooinstall_phase_locale;;
 			"update")       gentooinstall_phase_update;;
 			"vim")          gentooinstall_phase_vim;;
+			"syslogng")     gentooinstall_phase_syslogng;;
 			"packages")     gentooinstall_phase_packages;;
 			"plasma")       gentooinstall_phase_plasma;;
 			*)
@@ -186,11 +187,6 @@ function gentooinstall_phase_packages
 		
 		CONFIG_PROTECT_MASK="$CONFIG_PROTECT_MASK /etc/portage/package.use/zzzz-autounmask-write /etc/portage/package.accept_keywords"
 
-		emerge --quiet --autounmask-write app-admin/syslog-ng || emerge --resume
-		if [ $? -eq 0 ]; then
-			rc-update add syslog-ng default
-		fi
-		
 		emerge --quiet --autounmask-write net-misc/ntp || emerge --resume
 		if [ $? -eq 0 ]; then
 			rc-update add ntpd default
@@ -204,13 +200,6 @@ function gentooinstall_phase_packages
 		emerge --quiet --autounmask-write sys-process/vixie-cron || emerge --resume
 		if [ $? -eq 0 ]; then
 			rc-update add vixie-cron default
-		fi
-		
-		emerge --quiet app-admin/ccze
-		if [ $? -eq 0 ]; then
-			# Update /etc/syslog-ng/syslog-ng.conf to use ccze for color output on TTY12
-			echo "LS0tIC9ldGMvc3lzbG9nLW5nL3N5c2xvZy1uZy5jb25mCTIwMTYtMDQtMjkgMTE6NTg6MDkuNzkzNzA2MjE3IC0wNjAwCisrKyAvZXRjL3N5c2xvZy1uZy9zeXNsb2ctbmcuY29uZi5uZXcJMjAxNi0wNC0yOSAxMjowMDo0Ni4yMjY1Njg5OTAgLTA2MDAKQEAgLTI3LDcgKzI3LDcgQEAKIGRlc3RpbmF0aW9uIG1lc3NhZ2VzIHsgZmlsZSgiL3Zhci9sb2cvbWVzc2FnZXMiKTsgfTsKIAogIyBCeSBkZWZhdWx0IG1lc3NhZ2VzIGFyZSBsb2dnZWQgdG8gdHR5MTIuLi4KLWRlc3RpbmF0aW9uIGNvbnNvbGVfYWxsIHsgZmlsZSgiL2Rldi90dHkxMiIpOyB9OworZGVzdGluYXRpb24gY29uc29sZV9hbGwgeyBwcm9ncmFtKCJjY3plIC1yID4+IC9kZXYvdHR5MTIiKTsgfTsKICMgLi4uaWYgeW91IGludGVuZCB0byB1c2UgL2Rldi9jb25zb2xlIGZvciBwcm9ncmFtcyBsaWtlIHhjb25zb2xlCiAjIHlvdSBjYW4gY29tbWVudCBvdXQgdGhlIGRlc3RpbmF0aW9uIGxpbmUgYWJvdmUgdGhhdCByZWZlcmVuY2VzIC9kZXYvdHR5MTIKICMgYW5kIHVuY29tbWVudCB0aGUgbGluZSBiZWxvdy4K" \
-				| base64 --decode | patch -p0
 		fi
 		
 		emerge --quiet --autounmask-write app-admin/sudo || emerge --resume
@@ -358,6 +347,29 @@ function gentooinstall_phase_resolvconf
 	fi
 }
 
+function gentooinstall_phase_syslogng
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		emerge --quiet app-admin/syslog-ng
+		if [ $? -eq 0 ]; then
+			rc-update add syslog-ng default
+		fi
+
+		emerge --quiet app-admin/ccze
+		if [ $? -eq 0 ]; then
+			# Update /etc/syslog-ng/syslog-ng.conf to use ccze for color output on TTY12
+			echo "LS0tIC9ldGMvc3lzbG9nLW5nL3N5c2xvZy1uZy5jb25mCTIwMTYtMDQtMjkgMTE6NTg6MDkuNzkzNzA2MjE3IC0wNjAwCisrKyAvZXRjL3N5c2xvZy1uZy9zeXNsb2ctbmcuY29uZi5uZXcJMjAxNi0wNC0yOSAxMjowMDo0Ni4yMjY1Njg5OTAgLTA2MDAKQEAgLTI3LDcgKzI3LDcgQEAKIGRlc3RpbmF0aW9uIG1lc3NhZ2VzIHsgZmlsZSgiL3Zhci9sb2cvbWVzc2FnZXMiKTsgfTsKIAogIyBCeSBkZWZhdWx0IG1lc3NhZ2VzIGFyZSBsb2dnZWQgdG8gdHR5MTIuLi4KLWRlc3RpbmF0aW9uIGNvbnNvbGVfYWxsIHsgZmlsZSgiL2Rldi90dHkxMiIpOyB9OworZGVzdGluYXRpb24gY29uc29sZV9hbGwgeyBwcm9ncmFtKCJjY3plIC1yID4+IC9kZXYvdHR5MTIiKTsgfTsKICMgLi4uaWYgeW91IGludGVuZCB0byB1c2UgL2Rldi9jb25zb2xlIGZvciBwcm9ncmFtcyBsaWtlIHhjb25zb2xlCiAjIHlvdSBjYW4gY29tbWVudCBvdXQgdGhlIGRlc3RpbmF0aW9uIGxpbmUgYWJvdmUgdGhhdCByZWZlcmVuY2VzIC9kZXYvdHR5MTIKICMgYW5kIHVuY29tbWVudCB0aGUgbGluZSBiZWxvdy4K" \
+				| base64 --decode | patch -p0
+		fi
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase packages
+	fi
+}
+
 function gentooinstall_phase_timezone
 {
 	if $CHROOT; then
@@ -447,7 +459,7 @@ ARCHITECTURE=amd64
 CHROOT=false
 DEVICE=/tmp/none
 DESTINATION=/mnt/gentoo
-PHASES="download,verifydigest,verifyhash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,packages"
+PHASES="download,verifydigest,verifyhash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,syslogng,packages"
 TIMEZONE="UTC"
 
 #------------------------------------------------------------------------------
