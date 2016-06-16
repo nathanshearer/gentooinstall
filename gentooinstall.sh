@@ -41,6 +41,7 @@ function gentooinstall_main
 			"verifydigest") gentooinstall_phase_verifydigest;;
 			"verifyhash")   gentooinstall_phase_verifyhash;;
 			"extract")      gentooinstall_phase_extract;;
+			"qemu")         gentooinstall_phase_qemu;;
 			"deletestage3") gentooinstall_phase_deletestage3;;
 			"resolvconf")   gentooinstall_phase_resolvconf;;
 			"makeconf")     gentooinstall_phase_makeconf;;
@@ -338,6 +339,29 @@ function gentooinstall_phase_portage
 	fi
 }
 
+# Copies static qemu binaries into the install destionation
+function gentooinstall_phase_qemu
+{
+	case "$ARCHITECTURE" in
+		"armv4tl" | "armv5tel" | "armv6j" | "armv6j_hardfp" | "armv7a" | "armv7a_hardfp")
+			if [ ! -d /proc/sys/fs/binfmt_misc ]; then
+				echo "error: kernel support for 'misc binaries' is required"
+				return 1
+			elif ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+				echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+				return 2
+			elif ! "$DESTINATION"/bin/busybox true; then
+				echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
+				return 2
+			fi
+			cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
+			;;
+		*)
+			echo "error: unsupported architecture: \"$ARCHITECTURE\""
+			return 1;;
+	esac
+}
+
 function gentooinstall_phase_resolvconf
 {
 	if [ ! -f "$DESTINATION/etc/resolv.conf" ]; then
@@ -366,7 +390,7 @@ function gentooinstall_phase_syslogng
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase packages
+		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase syslogng
 	fi
 }
 
@@ -436,7 +460,7 @@ function gentooinstall_phase_vim
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase packages
+		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase vim
 	fi
 }
 
