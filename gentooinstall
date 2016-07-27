@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # \brief Displays the help and exits the program
 function gentooinstall_help
@@ -27,8 +27,8 @@ function gentooinstall_help
 	echo "  -t, --timezone \"UTC\""
 	echo "    Which timezone to configure."
 	echo "Examples:"
-	echo "  gentooinstall.sh -a amd64 -d /mnt/gentoo -t \"Canada/Mountain\""
-	echo "  gentooinstall.sh -a amd64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
+	echo "  gentooinstall -a amd64 -d /mnt/gentoo -t \"Canada/Mountain\""
+	echo "  gentooinstall -a amd64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
 	exit
 }
 
@@ -92,7 +92,7 @@ function gentooinstall_phase_locale
 		eselect locale set en_US.utf8
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase locale
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
 	fi
 }
 
@@ -188,7 +188,7 @@ function gentooinstall_phase_packages
 			|| emerge --resume
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase packages
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase packages
 	fi
 }
 
@@ -247,7 +247,7 @@ function gentooinstall_phase_portage
 		touch /etc/portage/package.use/zzzz-autounmask-write
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase portage --portage "$PORTAGE"
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
 	fi
 }
 
@@ -397,7 +397,7 @@ function gentooinstall_phase_syslogng
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase syslogng
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase syslogng
 	fi
 }
 
@@ -410,7 +410,7 @@ function gentooinstall_phase_timezone
 		emerge --config sys-libs/timezone-data
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase timezone -t "$TIMEZONE"
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
 	fi
 }
 
@@ -426,7 +426,7 @@ function gentooinstall_phase_update
 		emerge -uDN --with-bdeps=y --backtrack=1024 --quiet world
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase update
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
 	fi
 }
 
@@ -442,7 +442,7 @@ function gentooinstall_phase_vim
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase vim
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase vim
 	fi
 }
 
