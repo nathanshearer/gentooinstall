@@ -20,10 +20,15 @@ function gentooinstall_help
 	echo "    Display this help message and exit."
 	echo "  -p, --phase phase1,phase2,..."
 	echo "    A comma-separated list of which phases to run."
+	echo "  --portage latest"
+	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
+	echo "  --stage3 latest"
+	echo "    Which stage3 tarball to install, latest or a URL to a specific file to download."
 	echo "  -t, --timezone \"UTC\""
 	echo "    Which timezone to configure."
 	echo "Examples:"
 	echo "  gentooinstall.sh -a amd64 -d /mnt/gentoo -t \"Canada/Mountain\""
+	echo "  gentooinstall.sh -a amd64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
 	exit
 }
 
@@ -37,9 +42,9 @@ function gentooinstall_main
 		case "$CURRENT_PHASE" in
 			"partition")    gentooinstall_phase_partition;;
 			"mount")        gentooinstall_phase_mount;;
-			"download")     gentooinstall_phase_download;;
-			"verifydigest") gentooinstall_phase_verifydigest;;
-			"verifyhash")   gentooinstall_phase_verifyhash;;
+			"stage3")       gentooinstall_phase_stage3;;
+			"stage3digest") gentooinstall_phase_stage3digest;;
+			"stage3hash")   gentooinstall_phase_stage3hash;;
 			"extract")      gentooinstall_phase_extract;;
 			"qemu")         gentooinstall_phase_qemu;;
 			"deletestage3") gentooinstall_phase_deletestage3;;
@@ -53,7 +58,6 @@ function gentooinstall_main
 			"vim")          gentooinstall_phase_vim;;
 			"syslogng")     gentooinstall_phase_syslogng;;
 			"packages")     gentooinstall_phase_packages;;
-			"plasma")       gentooinstall_phase_plasma;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
@@ -67,70 +71,6 @@ function gentooinstall_main
 function gentooinstall_phase_deletestage3
 {
 	rm "$DESTINATION"/stage3-*.tar.bz2*
-}
-
-# \brief Download the latest stage3 tarball
-function gentooinstall_phase_download
-{
-	echo "Downloading the latest stage 3 tarball..."
-	mkdir -p "$DESTINATION"
-	case "$ARCHITECTURE" in
-		"i486")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i486.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"i686")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i686.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"amd64")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv4tl")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv5tel")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv6j")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv6j_hardfp")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv7a")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		"armv7a_hardfp")
-			LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
-			BASENAME=$(basename "$LATEST")
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-			wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-			;;
-		*) exit 1;;
-	esac
 }
 
 function gentooinstall_phase_extract
@@ -291,51 +231,23 @@ function gentooinstall_phase_partition
 	mkfs.ext4 -b 4096 -F "$DEVICE"*2
 }
 
-function gentooinstall_phase_plasma
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		eselect profile set "default/linux/amd64/13.0/desktop/plasma"
-		env-update
-		source /etc/profile
-		emerge -uDN --with-bdeps=y world
-		
-		emerge kde-plasma/plasma-meta
-		
-		emerge \
-			kde-apps/keditfiletype \
-			kde-apps/kwrite \
-			kde-apps/dolphin \
-			kde-apps/gwenview \
-			kde-apps/kcalc \
-			kde-apps/konsole
-		
-		# update /etc/conf.d/xdm so the display manager is sddm instead of xdm
-		echo "LS0tIC9ldGMvY29uZi5kL3hkbQkyMDE2LTA1LTE3IDE0OjM2OjM5Ljc1NjQ0NDU4NCAtMDYwMAorKysgL2V0Yy9jb25mLmQveGRtLnBhdGNoZWQJMjAxNi0wNS0xNyAxNTowNTozNS45NTk2NTY1MzQgLTA2MDAKQEAgLTcsNCArNyw0IEBACiAKICMgV2hhdCBkaXNwbGF5IG1hbmFnZXIgZG8geW91IHVzZSA/ICBbIHhkbSB8IGdkbSB8IGtkbSB8IGdwZSB8IGVudHJhbmNlIF0KICMgTk9URTogSWYgdGhpcyBpcyBzZXQgaW4gL2V0Yy9yYy5jb25mLCB0aGF0IHNldHRpbmcgd2lsbCBvdmVycmlkZSB0aGlzIG9uZS4KLURJU1BMQVlNQU5BR0VSPSJ4ZG0iCitESVNQTEFZTUFOQUdFUj0ic2RkbSIK" \
-			| base64 --decode | patch -p0
-		
-		rc-update add dbus default
-		rc-update add xdm default
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase plasma
-	fi
-}
-
 function gentooinstall_phase_portage
 {
 	if $CHROOT; then
 		env-update
 		source /etc/profile
-		emerge-webrsync --quiet >/dev/null 2>/dev/null
-		emerge --sync --quiet
+		if [ "$PORTAGE" = "latest" ]; then
+			emerge-webrsync --quiet >/dev/null 2>/dev/null
+			emerge --sync --quiet
+		else
+			wget "$PORTAGE" -O /tmp/portage.tar.bz2
+			tar xjpf /tmp/portage.tar.bz2 -C /usr
+		fi
 		mkdir /etc/portage/package.use
 		touch /etc/portage/package.use/zzzz-autounmask-write
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase portage
+		chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase portage --portage "$PORTAGE"
 	fi
 }
 
@@ -369,6 +281,101 @@ function gentooinstall_phase_resolvconf
 		echo "nameserver 8.8.8.8" >>"$DESTINATION/etc/resolv.conf"
 		echo "nameserver 8.8.4.4" >>"$DESTINATION/etc/resolv.conf"
 	fi
+}
+
+# \brief Download the latest stage3 tarball
+function gentooinstall_phase_stage3
+{
+	echo "Downloading the stage 3 tarball..."
+	mkdir -p "$DESTINATION"
+	if [ "$STAGE3" = "latest" ]; then
+		case "$ARCHITECTURE" in
+			"i486")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i486.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"i686")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i686.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"amd64")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv4tl")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv5tel")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv6j")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv6j_hardfp")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv7a")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			"armv7a_hardfp")
+				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
+				BASENAME=$(basename "$LATEST")
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				;;
+			*) exit 1;;
+		esac
+	else
+		BASENAME=$(basename "$STAGE3")
+		wget -q --show-progress "$STAGE3" -O "$DESTINATION/$BASENAME.tar.gz"
+		wget -q --show-progress "$STAGE3.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+	fi
+}
+
+function gentooinstall_phase_stage3digest
+{
+	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
+	gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910 >/dev/null 2>/dev/null
+	gpg --verify "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null 2>/dev/null
+	if [ $? -ne 0 ]; then
+		echo "Failed."
+		echo "error: the cryptographic signature of \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\" could not be verified!"
+		exit 1
+	fi
+	echo "Success."
+}
+
+function gentooinstall_phase_stage3hash
+{
+	echo -n "Verifying the hash of the stage3 tarball... "
+	grep $(sha512sum "$DESTINATION/stage3-"*".tar.bz2") "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null
+	if [ $? -ne 0 ]; then
+		echo "Failed."
+		echo "error: the downloaded file \"$DESTINATION/stage3-"*".tar.bz2\" does not match the sha512sum hash in \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\""
+		exit 1
+	fi
+	echo "Success."
 }
 
 function gentooinstall_phase_syslogng
@@ -423,31 +430,6 @@ function gentooinstall_phase_update
 	fi
 }
 
-function gentooinstall_phase_verifydigest
-{
-	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910 >/dev/null 2>/dev/null
-	gpg --verify "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null 2>/dev/null
-	if [ $? -ne 0 ]; then
-		echo "Failed."
-		echo "error: the cryptographic signature of \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\" could not be verified!"
-		exit 1
-	fi
-	echo "Success."
-}
-
-function gentooinstall_phase_verifyhash
-{
-	echo -n "Verifying the hash of the stage3 tarball... "
-	grep $(sha512sum "$DESTINATION/stage3-"*".tar.bz2") "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null
-	if [ $? -ne 0 ]; then
-		echo "Failed."
-		echo "error: the downloaded file \"$DESTINATION/stage3-"*".tar.bz2\" does not match the sha512sum hash in \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\""
-		exit 1
-	fi
-	echo "Success."
-}
-
 function gentooinstall_phase_vim
 {
 	if $CHROOT; then
@@ -469,7 +451,7 @@ function gentooinstall_phase_vim
 
 CODENAME=gentooinstall
 DISPLAYNAME="Gentoo Install"
-VERSION="1.0.0.0"
+VERSION="0.0.0.0"
 DEBUG=false
 TMP="/tmp"
 
@@ -482,8 +464,10 @@ VERBOSITY=0
 ARCHITECTURE=amd64
 CHROOT=false
 DEVICE=/tmp/none
+STAGE3="latest"
 DESTINATION=/mnt/gentoo
-PHASES="download,verifydigest,verifyhash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,syslogng,packages"
+PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,syslogng,packages"
+PORTAGE="latest"
 TIMEZONE="UTC"
 
 #------------------------------------------------------------------------------
@@ -522,11 +506,22 @@ while [ $# -ne 0 ]; do
 			PHASES="$2"
 			shift 2
 			;;
+		"--portage")
+			PORTAGE="$2"
+			shift 2
+			;;
+		"--stage3")
+			STAGE3="$2"
+			shift 2
+			;;
 		"-t"|"--timezone")
 			TIMEZONE="$2"
 			shift 2
 			;;
-		*) break;;
+		*)
+			echo "error: unrecognized argument \"$1\""
+			exit 1
+			break;;
 	esac
 done
 
