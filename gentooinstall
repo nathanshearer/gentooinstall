@@ -58,6 +58,7 @@ function gentooinstall_main
 			"vim")          gentooinstall_phase_vim;;
 			"syslogng")     gentooinstall_phase_syslogng;;
 			"packages")     gentooinstall_phase_packages;;
+			"xorg")         gentooinstall_phase_xorg;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
@@ -443,6 +444,50 @@ function gentooinstall_phase_vim
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase vim
+	fi
+}
+
+function gentooinstall_phase_xorg
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		case "$ARCHITECTURE" in
+			"amd64")
+				eselect profile set "default/linux/amd64/13.0/desktop"
+				;;
+			"armv4tl")
+				eselect profile set "default/linux/arm/13.0/armv4/desktop"
+				;;
+			"armv5tel")
+				eselect profile set "default/linux/arm/13.0/armv5te/desktop"
+				;;
+			"armv6j")
+				eselect profile set "default/linux/arm/13.0/armv6j/desktop"
+				;;
+			"armv6j_hardfp")
+				eselect profile set "default/linux/arm/13.0/armv6j/desktop"
+				;;
+			"armv7a")
+				eselect profile set "default/linux/arm/13.0/armv7a/desktop"
+				;;
+			"armv7a_hardfp")
+				eselect profile set "default/linux/arm/13.0/armv7a/desktop"
+				;;
+			*) exit 1;;
+		esac
+		
+		echo 'VIDEO_CARDS="fbdev"' >>/etc/portage/make.conf
+		
+		env-update
+		source /etc/profile
+		emerge -uDN --with-bdeps=y world
+		
+		emerge x11-base/xorg-x11
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase xorg
 	fi
 }
 
