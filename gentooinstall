@@ -12,14 +12,33 @@ function gentooinstall_help
 	echo "    Which architecture to install."
 	echo "  -b, --block-device /tmp/none"
 	echo "    Which block device to partition."
+	echo "  --block-device-partition-alignment 4194304"
+	echo "    What size to align the partitions along."
+	echo "  --block-device-partition-type gpt"
+	echo "    What type of a partition table to create: gpt or msdos."
 	echo "  --chroot false"
 	echo "    Chroot into the destination directory for the current phase."
-	echo "  -d, --destination"
+	echo "  -d, --destination /mnt/gentoo"
 	echo "    Where to install."
 	echo "  -h, --help"
 	echo "    Display this help message and exit."
 	echo "  -p, --phase phase1,phase2,..."
-	echo "    A comma-separated list of which phases to run."
+	echo "    A comma-separated list of which phases to run:"
+	echo "      partition"
+	echo "      mount"
+	echo "      stage3"
+	echo "      stage3digest"
+	echo "      stage3hash"
+	echo "      extract"
+	echo "      qemu"
+	echo "      deletestage3"
+	echo "      resolvconf"
+	echo "      makeconf"
+	echo "      mountchroot"
+	echo "      portage"
+	echo "      timezone"
+	echo "      locale"
+	echo "      update"
 	echo "  --portage latest"
 	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
 	echo "  --stage3 latest"
@@ -59,6 +78,7 @@ function gentooinstall_main
 			"syslogng")     gentooinstall_phase_syslogng;;
 			"packages")     gentooinstall_phase_packages;;
 			"xorg")         gentooinstall_phase_xorg;;
+			"kde")          gentooinstall_phase_kde;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
@@ -82,6 +102,54 @@ function gentooinstall_phase_extract
 	echo "Done."
 }
 
+function gentooinstall_phase_kde
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		case "$ARCHITECTURE" in
+			"amd64")
+				eselect profile set "default/linux/amd64/13.0/desktop/kde"
+				;;
+			"armv4tl")
+				eselect profile set "default/linux/arm/13.0/armv4/desktop/kde"
+				;;
+			"armv5tel")
+				eselect profile set "default/linux/arm/13.0/armv5te/desktop/kde"
+				;;
+			"armv6j")
+				eselect profile set "default/linux/arm/13.0/armv6j/desktop/kde"
+				;;
+			"armv6j_hardfp")
+				eselect profile set "default/linux/arm/13.0/armv6j/desktop/kde"
+				;;
+			"armv7a")
+				eselect profile set "default/linux/arm/13.0/armv7a/desktop/kde"
+				;;
+			"armv7a_hardfp")
+				eselect profile set "default/linux/arm/13.0/armv7a/desktop/kde"
+				;;
+			*) exit 1;;
+		esac
+		env-update
+		source /etc/profile
+		emerge -uDN --with-bdeps=y --quiet world
+		
+		emerge --backtrack=65536 --quiet kde-apps/kdebase-meta
+		
+		# update /etc/conf.d/xdm so the display manager is kdm instead of xdm
+		echo "LS0tIC9ldGMvY29uZi5kL3hkbS5vbGQJMjAxNi0wNy0yOCAxNTo0ODozOC4wMzAxMDIwMTcgKzAwMDAKKysrIC9ldGMvY29uZi5kL3hkbQkyMDE2LTA3LTI4IDE1OjQ4OjQzLjE0NzAzMzIyMSArMDAwMApAQCAtNyw0ICs3LDQgQEAKIAogIyBXaGF0IGRpc3BsYXkgbWFuYWdlciBkbyB5b3UgdXNlID8gIFsgeGRtIHwgZ2RtIHwga2RtIHwgZ3BlIHwgZW50cmFuY2UgXQogIyBOT1RFOiBJZiB0aGlzIGlzIHNldCBpbiAvZXRjL3JjLmNvbmYsIHRoYXQgc2V0dGluZyB3aWxsIG92ZXJyaWRlIHRoaXMgb25lLgotRElTUExBWU1BTkFHRVI9InhkbSIKK0RJU1BMQVlNQU5BR0VSPSJrZG0iCg==" \
+			| base64 --decode | patch -p0
+		
+		rc-update add dbus default
+		rc-update add xdm default
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase kde
+	fi
+}
+
 function gentooinstall_phase_locale
 {
 	if $CHROOT; then
@@ -93,7 +161,7 @@ function gentooinstall_phase_locale
 		eselect locale set en_US.utf8
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
 	fi
 }
 
@@ -170,6 +238,7 @@ function gentooinstall_phase_packages
 			sys-apps/hdparm \
 			sys-apps/iproute2 \
 			sys-apps/lm_sensors \
+			sys-apps/netplug \
 			sys-apps/pciutils \
 			sys-apps/smartmontools \
 			sys-apps/usb_modeswitch \
@@ -189,7 +258,7 @@ function gentooinstall_phase_packages
 			|| emerge --resume
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase packages
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase packages
 	fi
 }
 
@@ -208,7 +277,19 @@ function gentooinstall_phase_partition
 	local DEVICE_SERIAL=$(hdparm -I "$DEVICE" 2>/dev/null | grep --text 'Serial Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
 	local DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
 	
-	echo "Formatting with a UEFI partition table and filesystems:"
+	local BLOCK_SIZE=$DEVICE_PARTITION_ALIGNMENT
+	local DEVICE_BLOCKS=$(($DEVICE_SIZE/$BLOCK_SIZE))
+	local BOOT_BLOCKS=$((128*1024*1024/$BLOCK_SIZE))
+	if [ $(($BOOT_BLOCKS*$BLOCK_SIZE)) -lt $((128*1024*1024)) ]; then
+		BOOT_BLOCKS=$((128*1024*1024/$BLOCK_SIZE + 1))
+	fi
+	local SWAP_BLOCKS=$((4096*1024*1024/$BLOCK_SIZE))
+	if [ $(($SWAP_BLOCKS*$BLOCK_SIZE)) -lt $((4096*1024*1024)) ]; then
+		SWAP_BLOCKS=$((4096*1024*1024/$BLOCK_SIZE + 1))
+	fi
+	local ROOT_BLOCKS=$(($DEVICE_BLOCKS-1-$BOOT_BLOCKS-$SWAP_BLOCKS ))
+	
+	echo "Formatting with a $DEVICE_PARTITION_TYPE partition table and filesystems:"
 	echo "  Device: $DEVICE"
 	if [ "$DEVICE_MODEL" != "" ]; then
 		echo "  Model Number: $DEVICE_MODEL"
@@ -217,6 +298,10 @@ function gentooinstall_phase_partition
 		echo "  Serial Number: $DEVICE_SERIAL"
 	fi
 	echo "  Size: $DEVICE_SIZE Bytes"
+	echo "  Partition Alignment Block Size: $BLOCK_SIZE Bytes"
+	echo "  Boot Partition Size: $BOOT_BLOCKS Blocks"
+	echo "  Root Partition Size: $ROOT_BLOCKS Blocks"
+	echo "  Swap Partition Size: $SWAP_BLOCKS Blocks"
 	echo "Press CTRL+C to cancel"
 	for SECONDS in `seq 10 -1 1`; do
 		printf "\r${SECONDS} ... "
@@ -224,12 +309,25 @@ function gentooinstall_phase_partition
 	done
 	printf "\r0 ... \n"
 	
-	parted --script "$DEVICE" mklabel gpt
-	parted --script "$DEVICE" mkpart primary $((1*1024*1024))b $((129*1024*1024-1))b
+	echo -n "Creating the partition table..."
+	parted --script "$DEVICE" mklabel $DEVICE_PARTITION_TYPE
+	echo " done."
+	echo -n "Creating the boot partition..."
+	parted --script "$DEVICE" mkpart primary fat32 "$BLOCK_SIZE"b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_BLOCKS - 1))b
 	parted --script "$DEVICE" set 1 boot on
-	parted --script "$DEVICE" mkpart primary $((129*1024*1024))b $(( ($DEVICE_SIZE/(1024*1024) - 1) * 1024*1024 - 1 ))b
-	mkfs.vfat -F 32 "$DEVICE"*1
-	mkfs.ext4 -b 4096 -F "$DEVICE"*2
+	mkfs.vfat -F 32 "$DEVICE"*1 >/dev/null 2>/dev/null
+	echo " done."
+	echo -n "Creating the root partition..."
+	parted --script "$DEVICE" mkpart primary ext4 $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_BLOCKS))b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_BLOCKS + $BLOCK_SIZE*$ROOT_BLOCKS - 1))b
+	mkfs.ext4 -b 4096 -F "$DEVICE"*2 >/dev/null 2>/dev/null
+	echo " done."
+	echo -n "Creating the swap partition..."
+	parted --script "$DEVICE" mkpart primary ext4 $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_BLOCKS + $BLOCK_SIZE*$ROOT_BLOCKS))b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_BLOCKS + $BLOCK_SIZE*$ROOT_BLOCKS + $BLOCK_SIZE*$SWAP_BLOCKS - 1))b
+	mkswap "$DEVICE"*3 >/dev/null 2>/dev/null
+	echo " done."
+	echo -n "Activating the swap partition..."
+	swapon "$DEVICE"*3
+	echo " done."
 }
 
 function gentooinstall_phase_portage
@@ -248,7 +346,7 @@ function gentooinstall_phase_portage
 		touch /etc/portage/package.use/zzzz-autounmask-write
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
 	fi
 }
 
@@ -398,7 +496,7 @@ function gentooinstall_phase_syslogng
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase syslogng
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase syslogng
 	fi
 }
 
@@ -411,7 +509,7 @@ function gentooinstall_phase_timezone
 		emerge --config sys-libs/timezone-data
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
 	fi
 }
 
@@ -423,11 +521,11 @@ function gentooinstall_phase_update
 		
 		# list the news to help the user debug any unexpected failures
 		eselect news list
-		emerge -1u --backtrack=1024 sys-apps/portage
+		emerge -1u --backtrack=1024 --quiet sys-apps/portage
 		emerge -uDN --with-bdeps=y --backtrack=1024 --quiet world
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
 	fi
 }
 
@@ -443,7 +541,7 @@ function gentooinstall_phase_vim
 		fi
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase vim
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase vim
 	fi
 }
 
@@ -482,12 +580,12 @@ function gentooinstall_phase_xorg
 		
 		env-update
 		source /etc/profile
-		emerge -uDN --with-bdeps=y world
+		emerge -uDN --with-bdeps=y --quiet world
 		
-		emerge x11-base/xorg-x11
+		emerge --quiet x11-base/xorg-x11
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase xorg
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase xorg
 	fi
 }
 
@@ -507,8 +605,11 @@ EMAIL=""
 NICE=0
 VERBOSITY=0
 ARCHITECTURE=amd64
+SETARCH=""
 CHROOT=false
 DEVICE=/tmp/none
+DEVICE_PARTITION_TYPE=gpt
+DEVICE_PARTITION_ALIGNMENT=4194304
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
 PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,syslogng,packages"
@@ -533,6 +634,14 @@ while [ $# -ne 0 ]; do
 			;;
 		"-b"|"--block-device")
 			DEVICE="$2"
+			shift 2
+			;;
+		"--block-device-partition-type")
+			DEVICE_PARTITION_TYPE="$2"
+			shift 2
+			;;
+		"--block-device-partition-alignment")
+			DEVICE_PARTITION_ALIGNMENT="$2"
 			shift 2
 			;;
 		"--chroot")
@@ -569,6 +678,10 @@ while [ $# -ne 0 ]; do
 			break;;
 	esac
 done
+
+if [ "$ARCHITECTURE"="i686" ]; then
+	SETARCH="linux32"
+fi
 
 #------------------------------------------------------------------------------
 # begin execution
