@@ -74,11 +74,6 @@ function gentooinstall_main
 			"timezone")     gentooinstall_phase_timezone;;
 			"locale")       gentooinstall_phase_locale;;
 			"update")       gentooinstall_phase_update;;
-			"vim")          gentooinstall_phase_vim;;
-			"syslogng")     gentooinstall_phase_syslogng;;
-			"packages")     gentooinstall_phase_packages;;
-			"xorg")         gentooinstall_phase_xorg;;
-			"kde")          gentooinstall_phase_kde;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
@@ -100,54 +95,6 @@ function gentooinstall_phase_extract
 	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION\"... "
 	tar xjpf "$DESTINATION"/stage3-*.tar.bz2 -C "$DESTINATION" --xattrs
 	echo "Done."
-}
-
-function gentooinstall_phase_kde
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		case "$ARCHITECTURE" in
-			"amd64")
-				eselect profile set "default/linux/amd64/13.0/desktop/kde"
-				;;
-			"armv4tl")
-				eselect profile set "default/linux/arm/13.0/armv4/desktop/kde"
-				;;
-			"armv5tel")
-				eselect profile set "default/linux/arm/13.0/armv5te/desktop/kde"
-				;;
-			"armv6j")
-				eselect profile set "default/linux/arm/13.0/armv6j/desktop/kde"
-				;;
-			"armv6j_hardfp")
-				eselect profile set "default/linux/arm/13.0/armv6j/desktop/kde"
-				;;
-			"armv7a")
-				eselect profile set "default/linux/arm/13.0/armv7a/desktop/kde"
-				;;
-			"armv7a_hardfp")
-				eselect profile set "default/linux/arm/13.0/armv7a/desktop/kde"
-				;;
-			*) exit 1;;
-		esac
-		env-update
-		source /etc/profile
-		emerge -uDN --with-bdeps=y --quiet world
-		
-		emerge --backtrack=65536 --quiet kde-apps/kdebase-meta
-		
-		# update /etc/conf.d/xdm so the display manager is kdm instead of xdm
-		echo "LS0tIC9ldGMvY29uZi5kL3hkbS5vbGQJMjAxNi0wNy0yOCAxNTo0ODozOC4wMzAxMDIwMTcgKzAwMDAKKysrIC9ldGMvY29uZi5kL3hkbQkyMDE2LTA3LTI4IDE1OjQ4OjQzLjE0NzAzMzIyMSArMDAwMApAQCAtNyw0ICs3LDQgQEAKIAogIyBXaGF0IGRpc3BsYXkgbWFuYWdlciBkbyB5b3UgdXNlID8gIFsgeGRtIHwgZ2RtIHwga2RtIHwgZ3BlIHwgZW50cmFuY2UgXQogIyBOT1RFOiBJZiB0aGlzIGlzIHNldCBpbiAvZXRjL3JjLmNvbmYsIHRoYXQgc2V0dGluZyB3aWxsIG92ZXJyaWRlIHRoaXMgb25lLgotRElTUExBWU1BTkFHRVI9InhkbSIKK0RJU1BMQVlNQU5BR0VSPSJrZG0iCg==" \
-			| base64 --decode | patch -p0
-		
-		rc-update add dbus default
-		rc-update add xdm default
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall.sh --chroot --phase kde
-	fi
 }
 
 function gentooinstall_phase_locale
@@ -187,79 +134,6 @@ function gentooinstall_phase_mountchroot
 	mount --make-rslave "$DESTINATION/sys"
 	mount --rbind /dev "$DESTINATION/dev"
 	mount --make-rslave "$DESTINATION/dev"
-}
-
-function gentooinstall_phase_packages
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		CONFIG_PROTECT_MASK="$CONFIG_PROTECT_MASK /etc/portage/package.use/zzzz-autounmask-write /etc/portage/package.accept_keywords"
-
-		emerge --quiet --autounmask-write net-misc/ntp || emerge --resume
-		if [ $? -eq 0 ]; then
-			rc-update add ntpd default
-		fi
-		
-		emerge --quiet --autounmask-write sys-power/acpid || emerge --resume
-		if [ $? -eq 0 ]; then
-			rc-update add acpid default
-		fi
-		
-		emerge --quiet --autounmask-write sys-process/vixie-cron || emerge --resume
-		if [ $? -eq 0 ]; then
-			rc-update add vixie-cron default
-		fi
-		
-		emerge --quiet --autounmask-write app-admin/sudo || emerge --resume
-		if [ $? -eq 0 ]; then
-			# update /etc/sudoers to allow members of the wheel group to run any command via sudo
-			echo "LS0tIC9ldGMvc3Vkb2VycwkyMDE2LTA0LTI4IDE5OjU5OjU3LjYzMzE5NTE5NSAtMDYwMAorKysgL2V0Yy9zdWRvZXJzLnBhdGNoZWQJMjAxNi0wNC0yOSAxMzo1NDoyNy4yNzk5NjMzMjQgLTA2MDAKQEAgLTc5LDcgKzc5LDcgQEAKIHJvb3QgQUxMPShBTEwpIEFMTAogCiAjIyBVbmNvbW1lbnQgdG8gYWxsb3cgbWVtYmVycyBvZiBncm91cCB3aGVlbCB0byBleGVjdXRlIGFueSBjb21tYW5kCi0jICV3aGVlbCBBTEw9KEFMTCkgQUxMCisld2hlZWwgQUxMPShBTEwpIEFMTAogCiAjIyBTYW1lIHRoaW5nIHdpdGhvdXQgYSBwYXNzd29yZAogIyAld2hlZWwgQUxMPShBTEwpIE5PUEFTU1dEOiBBTEwK" \
-				| base64 --decode | patch -p0
-		fi
-		
-		emerge --quiet app-portage/gentoolkit
-		
-		emerge --quiet --autounmask-write \
-			app-editors/nano \
-			app-misc/screen \
-			net-analyzer/arping \
-			net-analyzer/bmon \
-			net-analyzer/tcpdump \
-			net-analyzer/traceroute \
-			net-dns/bind-tools \
-			net-dns/openresolv \
-			net-firewall/iptables \
-			net-fs/nfs-utils \
-			net-misc/bridge-utils \
-			net-misc/dhcpcd \
-			net-misc/whois \
-			sys-apps/hdparm \
-			sys-apps/iproute2 \
-			sys-apps/lm_sensors \
-			sys-apps/netplug \
-			sys-apps/pciutils \
-			sys-apps/smartmontools \
-			sys-apps/usb_modeswitch \
-			sys-apps/usbutils \
-			sys-block/parted \
-			sys-fs/btrfs-progs \
-			sys-fs/ddrescue \
-			sys-fs/dosfstools \
-			sys-fs/exfat-utils \
-			sys-fs/fuse-exfat \
-			sys-fs/lvm2 \
-			sys-fs/mdadm \
-			sys-kernel/linux-firmware \
-			sys-process/atop \
-			sys-process/iotop \
-			sys-process/lsof \
-			|| emerge --resume
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase packages
-	fi
 }
 
 function gentooinstall_phase_partition
@@ -477,29 +351,6 @@ function gentooinstall_phase_stage3hash
 	echo "Success."
 }
 
-function gentooinstall_phase_syslogng
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		emerge --quiet app-admin/syslog-ng
-		if [ $? -eq 0 ]; then
-			rc-update add syslog-ng default
-		fi
-
-		emerge --quiet app-admin/ccze
-		if [ $? -eq 0 ]; then
-			# Update /etc/syslog-ng/syslog-ng.conf to use ccze for color output on TTY12
-			echo "LS0tIC9ldGMvc3lzbG9nLW5nL3N5c2xvZy1uZy5jb25mCTIwMTYtMDQtMjkgMTE6NTg6MDkuNzkzNzA2MjE3IC0wNjAwCisrKyAvZXRjL3N5c2xvZy1uZy9zeXNsb2ctbmcuY29uZi5uZXcJMjAxNi0wNC0yOSAxMjowMDo0Ni4yMjY1Njg5OTAgLTA2MDAKQEAgLTI3LDcgKzI3LDcgQEAKIGRlc3RpbmF0aW9uIG1lc3NhZ2VzIHsgZmlsZSgiL3Zhci9sb2cvbWVzc2FnZXMiKTsgfTsKIAogIyBCeSBkZWZhdWx0IG1lc3NhZ2VzIGFyZSBsb2dnZWQgdG8gdHR5MTIuLi4KLWRlc3RpbmF0aW9uIGNvbnNvbGVfYWxsIHsgZmlsZSgiL2Rldi90dHkxMiIpOyB9OworZGVzdGluYXRpb24gY29uc29sZV9hbGwgeyBwcm9ncmFtKCJjY3plIC1yID4+IC9kZXYvdHR5MTIiKTsgfTsKICMgLi4uaWYgeW91IGludGVuZCB0byB1c2UgL2Rldi9jb25zb2xlIGZvciBwcm9ncmFtcyBsaWtlIHhjb25zb2xlCiAjIHlvdSBjYW4gY29tbWVudCBvdXQgdGhlIGRlc3RpbmF0aW9uIGxpbmUgYWJvdmUgdGhhdCByZWZlcmVuY2VzIC9kZXYvdHR5MTIKICMgYW5kIHVuY29tbWVudCB0aGUgbGluZSBiZWxvdy4K" \
-				| base64 --decode | patch -p0
-		fi
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase syslogng
-	fi
-}
-
 function gentooinstall_phase_timezone
 {
 	if $CHROOT; then
@@ -529,66 +380,6 @@ function gentooinstall_phase_update
 	fi
 }
 
-function gentooinstall_phase_vim
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		emerge --quiet app-editors/vim
-		if [ $? -eq 0 ]; then
-			eselect editor set vi
-		fi
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase vim
-	fi
-}
-
-function gentooinstall_phase_xorg
-{
-	if $CHROOT; then
-		env-update
-		source /etc/profile
-		
-		case "$ARCHITECTURE" in
-			"amd64")
-				eselect profile set "default/linux/amd64/13.0/desktop"
-				;;
-			"armv4tl")
-				eselect profile set "default/linux/arm/13.0/armv4/desktop"
-				;;
-			"armv5tel")
-				eselect profile set "default/linux/arm/13.0/armv5te/desktop"
-				;;
-			"armv6j")
-				eselect profile set "default/linux/arm/13.0/armv6j/desktop"
-				;;
-			"armv6j_hardfp")
-				eselect profile set "default/linux/arm/13.0/armv6j/desktop"
-				;;
-			"armv7a")
-				eselect profile set "default/linux/arm/13.0/armv7a/desktop"
-				;;
-			"armv7a_hardfp")
-				eselect profile set "default/linux/arm/13.0/armv7a/desktop"
-				;;
-			*) exit 1;;
-		esac
-		
-		echo 'VIDEO_CARDS="fbdev"' >>/etc/portage/make.conf
-		
-		env-update
-		source /etc/profile
-		emerge -uDN --with-bdeps=y --quiet world
-		
-		emerge --quiet x11-base/xorg-x11
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase xorg
-	fi
-}
-
 #------------------------------------------------------------------------------
 # hard coded variables
 
@@ -612,7 +403,7 @@ DEVICE_PARTITION_TYPE=gpt
 DEVICE_PARTITION_ALIGNMENT=4194304
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
-PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update,vim,syslogng,packages"
+PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update"
 PORTAGE="latest"
 TIMEZONE="UTC"
 
