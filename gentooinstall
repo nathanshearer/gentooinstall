@@ -38,6 +38,7 @@ function gentooinstall_help
 	echo "      portage"
 	echo "      timezone"
 	echo "      locale"
+	echo "      kernel"
 	echo "      update"
 	echo "  --portage latest"
 	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
@@ -73,6 +74,7 @@ function gentooinstall_main
 			"portage")      gentooinstall_phase_portage;;
 			"timezone")     gentooinstall_phase_timezone;;
 			"locale")       gentooinstall_phase_locale;;
+			"kernel")       gentooinstall_phase_kernel;;
 			"update")       gentooinstall_phase_update;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
@@ -95,6 +97,31 @@ function gentooinstall_phase_extract
 	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION\"... "
 	tar xjpf "$DESTINATION"/stage3-*.tar.bz2 -C "$DESTINATION" --xattrs
 	echo "Done."
+}
+
+function gentooinstall_phase_kernel
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		USE="symlink" emerge -1q sys-kernel/gentoo-sources
+		cd /usr/src/linux
+		local VERSION=$(grep '^VERSION' Makefile | sed -r 's/[^=]+ = //')
+		local PATCHLEVEL=$(grep '^PATCHLEVEL' Makefile | sed -r 's/[^=]+ = //')
+		local SUBLEVEL=$(grep '^SUBLEVEL' Makefile | sed -r 's/[^=]+ = //')
+		local EXTRAVERSION=$(grep '^EXTRAVERSION' Makefile | sed -r 's/[^=]+ = //')
+		local NAME=$(grep '^NAME' Makefile | sed -r 's/[^=]+ = //')
+		make defconfig
+		make
+		make modules_install
+		cp arch/x86_64/boot/bzImage /boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION
+		KERNEL="/boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION"
+		
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase kernel
+	fi
 }
 
 function gentooinstall_phase_locale
@@ -403,9 +430,10 @@ DEVICE_PARTITION_TYPE=gpt
 DEVICE_PARTITION_ALIGNMENT=4194304
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
-PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,update"
+PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,kernel,update"
 PORTAGE="latest"
 TIMEZONE="UTC"
+KERNEL="/boot/kernel"
 
 #------------------------------------------------------------------------------
 # command line arguments
