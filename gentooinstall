@@ -39,6 +39,7 @@ function gentooinstall_help
 	echo "      timezone"
 	echo "      locale"
 	echo "      kernel"
+	echo "      fstab"
 	echo "      update"
 	echo "  --portage latest"
 	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
@@ -75,6 +76,7 @@ function gentooinstall_main
 			"timezone")     gentooinstall_phase_timezone;;
 			"locale")       gentooinstall_phase_locale;;
 			"kernel")       gentooinstall_phase_kernel;;
+			"fstab")        gentooinstall_phase_fstab;;
 			"update")       gentooinstall_phase_update;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
@@ -97,6 +99,37 @@ function gentooinstall_phase_extract
 	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION\"... "
 	tar xjpf "$DESTINATION"/stage3-*.tar.bz2 -C "$DESTINATION" --xattrs
 	echo "Done."
+}
+
+function gentooinstall_phase_fstab
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		echo -n "Updating /etc/fstab... "
+		
+		if [ ! -b "$DEVICE" ]; then
+			echo "error: \"$DEVICE\" is not a block device"
+			return 1
+		fi
+		
+		local BOOTUUID=$(lsblk -f -n -o UUID "$DEVICE"*1)
+		local ROOTUUID=$(lsblk -f -n -o UUID "$DEVICE"*2)
+		local SWAPUUID=$(lsblk -f -n -o UUID "$DEVICE"*3)
+		
+		sed -i -r "s/\/dev\/BOOT.*/UUID=$BOOTUUID  \/boot  msdos  noauto,noatime  1 2/" /etc/fstab
+		sed -i -r "s/\/dev\/ROOT.*/UUID=$ROOTUUID  \/  ext4  noatime  0 1/" /etc/fstab
+		sed -i -r "s/\/dev\/SWAP.*/UUID=$SWAPUUID  none  swap  sw  0 0/" /etc/fstab
+		sed -i -r "/\/dev\/cdrom.*/d" /etc/fstab
+		sed -i -r "/\/dev\/fd0.*/d" /etc/fstab
+		
+		echo "done."
+		
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase fstab -b "$DEVICE"
+	fi
 }
 
 function gentooinstall_phase_kernel
@@ -430,7 +463,7 @@ DEVICE_PARTITION_TYPE=gpt
 DEVICE_PARTITION_ALIGNMENT=4194304
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
-PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,kernel,update"
+PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,kernel,fstab,update"
 PORTAGE="latest"
 TIMEZONE="UTC"
 KERNEL="/boot/kernel"
