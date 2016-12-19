@@ -12,8 +12,8 @@ function gentooinstall_help
 	echo "    Which architecture to install."
 	echo "  -b, --block-device /tmp/none"
 	echo "    Which block device to partition."
-	echo "  --block-device-partition-alignment 4194304"
-	echo "    What size to align the partitions along."
+	echo "  --block-device-block-size $((1024*1024))"
+	echo "    What block size to align the partitions to."
 	echo "  --block-device-partition-type gpt"
 	echo "    What type of a partition table to create: gpt or msdos."
 	echo "  --chroot false"
@@ -210,18 +210,17 @@ function gentooinstall_phase_partition
 	local DEVICE_MODEL=$(hdparm -I "$DEVICE" 2>/dev/null | grep --text 'Model Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
 	local DEVICE_SERIAL=$(hdparm -I "$DEVICE" 2>/dev/null | grep --text 'Serial Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
 	local DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
+	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$DEVICE_BLOCK_SIZE))
 	
-	local BLOCK_SIZE=$DEVICE_PARTITION_ALIGNMENT
-	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$BLOCK_SIZE))
-	local BOOT_SIZE_BLOCKS=$((128*1024*1024/$BLOCK_SIZE))
-	if [ $(($BOOT_SIZE_BLOCKS*$BLOCK_SIZE)) -lt $((128*1024*1024)) ]; then
-		BOOT_SIZE_BLOCKS=$((128*1024*1024/$BLOCK_SIZE + 1))
+	local BOOT_SIZE_BLOCKS=$((128*1024*1024/$DEVICE_BLOCK_SIZE))
+	if [ $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) -lt $((128*1024*1024)) ]; then
+		BOOT_SIZE_BLOCKS=$((128*1024*1024/$DEVICE_BLOCK_SIZE + 1))
 	fi
-	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$BLOCK_SIZE))
-	if [ $(($SWAP_SIZE_BLOCKS*$BLOCK_SIZE)) -lt $((4096*1024*1024)) ]; then
-		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$BLOCK_SIZE + 1))
+	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$DEVICE_BLOCK_SIZE))
+	if [ $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) -lt $((4096*1024*1024)) ]; then
+		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$DEVICE_BLOCK_SIZE + 1))
 	fi
-	# leave one block a the beginning for the boot loader, and one block at the end for rounding errors
+	# leave one block a the beginning for the partition table, and one block at the end for rounding errors
 	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
 	
 	echo "Formatting with a $DEVICE_PARTITION_TYPE partition table and filesystems:"
@@ -233,10 +232,10 @@ function gentooinstall_phase_partition
 		echo "  Serial Number: $DEVICE_SERIAL"
 	fi
 	echo "  Size: $DEVICE_SIZE Bytes"
-	echo "  Partition Alignment Block Size: $BLOCK_SIZE Bytes"
-	echo "  Boot Partition Size: $BOOT_SIZE_BLOCKS Blocks"
-	echo "  Root Partition Size: $ROOT_SIZE_BLOCKS Blocks"
-	echo "  Swap Partition Size: $SWAP_SIZE_BLOCKS Blocks"
+	echo "  Block Size: $DEVICE_BLOCK_SIZE Bytes"
+	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
+	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
+	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "Press CTRL+C to cancel"
 	for SECONDS in `seq 10 -1 1`; do
 		printf "\r${SECONDS} ... "
@@ -248,21 +247,28 @@ function gentooinstall_phase_partition
 	parted --script "$DEVICE" mklabel $DEVICE_PARTITION_TYPE
 	echo " done."
 	echo -n "Creating the boot partition..."
-	parted --script "$DEVICE" mkpart primary fat32 "$BLOCK_SIZE"b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_SIZE_BLOCKS - 1))b
+	parted --script "$DEVICE" mkpart primary fat32 "$DEVICE_BLOCK_SIZE"b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS - 1))b
 	parted --script "$DEVICE" set 1 boot on
 	mkfs.vfat -F 32 "$DEVICE"*1 >/dev/null 2>/dev/null
 	echo " done."
 	echo -n "Creating the root partition..."
-	parted --script "$DEVICE" mkpart primary ext4 $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
+	parted --script "$DEVICE" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
 	mkfs.ext4 -b 4096 -F "$DEVICE"*2 >/dev/null 2>/dev/null
 	echo " done."
 	echo -n "Creating the swap partition..."
-	parted --script "$DEVICE" mkpart primary ext4 $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($BLOCK_SIZE + $BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
+	parted --script "$DEVICE" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
 	mkswap "$DEVICE"*3 >/dev/null 2>/dev/null
 	echo " done."
-	echo -n "Activating the swap partition..."
-	swapon "$DEVICE"*3
-	echo " done."
+	local MEMORY_PHYSICAL=$(free -b | grep Mem | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
+	local MEMORY_SWAP=$(free -b | grep Swap | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
+	local MEMORY_TOTAL=$(($MEMORY_PHYSICAL+$MEMORY_SWAP))
+	echo "Total physical and swap memory available: $MEMORY_TOTAL Bytes"
+	if [ $MEMORY_TOTAL -lt $((1024*1024*1024*4)) ]; then
+		echo "Less than 4GiB of physical and swap memory detected"
+		echo -n "Activating the swap partition..."
+		swapon "$DEVICE"*3
+		echo " done."
+	fi
 }
 
 function gentooinstall_phase_portage
@@ -461,7 +467,7 @@ SETARCH=""
 CHROOT=false
 DEVICE=/tmp/none
 DEVICE_PARTITION_TYPE=gpt
-DEVICE_PARTITION_ALIGNMENT=$((1024*1024))
+DEVICE_BLOCK_SIZE=$((1024*1024))
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
 PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,kernel,fstab,update"
@@ -489,12 +495,12 @@ while [ $# -ne 0 ]; do
 			DEVICE="$2"
 			shift 2
 			;;
-		"--block-device-partition-type")
-			DEVICE_PARTITION_TYPE="$2"
+		"--block-device-block-size")
+			DEVICE_BLOCK_SIZE="$2"
 			shift 2
 			;;
-		"--block-device-partition-alignment")
-			DEVICE_PARTITION_ALIGNMENT="$2"
+		"--block-device-partition-type")
+			DEVICE_PARTITION_TYPE="$2"
 			shift 2
 			;;
 		"--chroot")
