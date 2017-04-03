@@ -1,15 +1,73 @@
 #!/usr/bin/env bash
 
+NAME="Gentoo Install"
+CODENAME="gentooinstall"
+COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
+LICENSE="GNU General Public License 2.0"
+VERSION="0.0.0.0"
+
+function gentooinstall_architecture
+{
+	if uname -m | grep -qx "alpha"; then
+		echo "alpha"
+	elif uname -m | grep -q "armv4"; then
+		echo "armv4"
+	elif uname -m | grep -q "armv5"; then
+		echo "armv5"
+	elif uname -m | grep -q "armv6"; then
+		if grep -q vfp /proc/cpuinfo; then
+			echo "armv6hf"
+		else
+			echo "armv6"
+		fi
+	elif uname -m | grep -q "armv7"; then
+		if grep -q vfp /proc/cpuinfo; then
+			echo "armv7hf"
+		else
+			echo "armv7"
+		fi
+	elif uname -m | grep -q "armv8"; then
+		if grep -q vfp /proc/cpuinfo; then
+			echo "armv8hf"
+		else
+			echo "armv8"
+		fi
+	elif uname -m | grep -qx "i386"; then
+		echo "i386"
+	elif uname -m | grep -qx "i686"; then
+		echo "i686"
+	elif uname -m | grep -qx "mips"; then
+		echo "mips"
+	elif uname -m | grep -qx "ppc"; then
+		echo "ppc"
+	elif uname -m | grep -qx "ppc64"; then
+		echo "ppc64"
+	elif uname -m | grep -qx "sparc64"; then
+		echo "sparc64"
+	elif uname -m | grep -qx "x86_64"; then
+		echo "x86_64"
+	elif uname -m | grep -qx "amd64"; then
+		echo "x86_64"
+	else
+		echo "unknown"
+	fi
+}
+
 # \brief Displays the help and exits the program
 function gentooinstall_help
 {
-	echo "$DISPLAYNAME $VERSION"
-	echo "This script automates most of the steps in the Gentoo Handbook."
+	#     01234567890123456789012345678901234567890123456789012345678901234567890123456789
+	echo "Description:"
+	echo "  Install Gentoo Linux by automating most of the steps in the Gentoo Handbook."
+	echo
 	echo "Usage:"
-	echo "  gentooinstall [options]"
+	echo "  $CODENAME [options]"
+	echo
 	echo "Options:"
-	echo "  -a, --architecture amd64"
-	echo "    Which architecture to install."
+	echo "  -a, --architecture x86_64"
+	echo "    Which architecture to install. Default is the current architecture. Supported"
+	echo "    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,"
+	echo "    armv7hf."
 	echo "  -b, --block-device /tmp/none"
 	echo "    Which block device to partition."
 	echo "  --block-device-block-size $((1024*1024))"
@@ -26,30 +84,35 @@ function gentooinstall_help
 	echo "    A comma-separated list of which phases to run:"
 	echo "      partition"
 	echo "      mount"
-	echo "      stage3"
-	echo "      stage3digest"
-	echo "      stage3hash"
-	echo "      extract"
-	echo "      qemu"
-	echo "      deletestage3"
-	echo "      resolvconf"
-	echo "      makeconf"
-	echo "      mountchroot"
-	echo "      portage"
-	echo "      timezone"
-	echo "      locale"
+	echo "      stage3              default"
+	echo "      stage3digest        default"
+	echo "      stage3hash          default"
+	echo "      extract             default"
+	echo "      dynamictranslation  default"
+	echo "      deletestage3        default"
+	echo "      resolvconf          default"
+	echo "      mountchroot         default"
+	echo "      portage             default"
+	echo "      timezone            default"
+	echo "      locale              default"
 	echo "      kernel"
 	echo "      fstab"
-	echo "      update"
+	echo "      update              default"
 	echo "  --portage latest"
 	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
 	echo "  --stage3 latest"
 	echo "    Which stage3 tarball to install, latest or a URL to a specific file to download."
 	echo "  -t, --timezone \"UTC\""
 	echo "    Which timezone to configure."
+	echo
 	echo "Examples:"
-	echo "  gentooinstall -a amd64 -d /mnt/gentoo -t \"Canada/Mountain\""
-	echo "  gentooinstall -a amd64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
+	echo "  gentooinstall -a x86_64 -d /mnt/gentoo -t \"Canada/Mountain\""
+	echo "  gentooinstall -a x86_64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
+	echo
+	echo "Version:"
+	echo "  $NAME $VERSION"
+	echo "  $COPYRIGHT"
+	echo "  Licensed under $LICENSE"
 	exit
 }
 
@@ -61,28 +124,31 @@ function gentooinstall_main
 	local REMAINING_PHASES=$(echo -n "$PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
 	while [ "$CURRENT_PHASE" != "" ]; do
 		case "$CURRENT_PHASE" in
-			"partition")    gentooinstall_phase_partition;;
-			"mount")        gentooinstall_phase_mount;;
-			"stage3")       gentooinstall_phase_stage3;;
-			"stage3digest") gentooinstall_phase_stage3digest;;
-			"stage3hash")   gentooinstall_phase_stage3hash;;
-			"extract")      gentooinstall_phase_extract;;
-			"qemu")         gentooinstall_phase_qemu;;
-			"deletestage3") gentooinstall_phase_deletestage3;;
-			"resolvconf")   gentooinstall_phase_resolvconf;;
-			"makeconf")     gentooinstall_phase_makeconf;;
-			"mountchroot")  gentooinstall_phase_mountchroot;;
-			"portage")      gentooinstall_phase_portage;;
-			"timezone")     gentooinstall_phase_timezone;;
-			"locale")       gentooinstall_phase_locale;;
-			"kernel")       gentooinstall_phase_kernel;;
-			"fstab")        gentooinstall_phase_fstab;;
-			"update")       gentooinstall_phase_update;;
+			"partition")          gentooinstall_phase_partition;;
+			"mount")              gentooinstall_phase_mount;;
+			"stage3")             gentooinstall_phase_stage3;;
+			"stage3digest")       gentooinstall_phase_stage3digest;;
+			"stage3hash")         gentooinstall_phase_stage3hash;;
+			"extract")            gentooinstall_phase_extract;;
+			"dynamictranslation") gentooinstall_phase_dynamictranslation;;
+			"deletestage3")       gentooinstall_phase_deletestage3;;
+			"resolvconf")         gentooinstall_phase_resolvconf;;
+			"mountchroot")        gentooinstall_phase_mountchroot;;
+			"portage")            gentooinstall_phase_portage;;
+			"timezone")           gentooinstall_phase_timezone;;
+			"locale")             gentooinstall_phase_locale;;
+			"kernel")             gentooinstall_phase_kernel;;
+			"fstab")              gentooinstall_phase_fstab;;
+			"update")             gentooinstall_phase_update;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
 				;;
 		esac
+		if [ $? -eq 1 ]; then
+			echo "error: the $CURRENT_PHASE phase encountered an error"
+			exit 1
+		fi
 		CURRENT_PHASE=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 		REMAINING_PHASES=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
 	done
@@ -91,6 +157,74 @@ function gentooinstall_main
 function gentooinstall_phase_deletestage3
 {
 	rm "$DESTINATION"/stage3-*.tar.bz2*
+}
+
+function gentooinstall_phase_dynamictranslation
+{
+	if [ $(gentooinstall_architecture) != "$ARCHITECTURE" ]; then
+		case $(gentooinstall_architecture) in
+			"armv6hf")
+				case "$ARCHITECTURE" in
+					"armv4" | "armv5" | "armv6")
+						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
+						;;
+				esac
+				;;
+			"armv7hf")
+				case "$ARCHITECTURE" in
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7")
+						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
+						;;
+				esac
+				;;
+			"x86_64")
+				case "$ARCHITECTURE" in
+					"i486" | "i686" | "x86_64")
+						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
+						;;
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+						echo -n "Verifying kernel support for 'misc binaries'..."
+						if [ ! -d /proc/sys/fs/binfmt_misc ]; then
+							echo " Failed."
+							echo "error: kernel support for 'misc binaries' is required"
+							return 1
+						fi
+						echo " Success."
+						
+						echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
+						if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+							echo " Failed."
+							echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+							return 2
+						fi
+						echo " Success."
+						
+						echo -n "Testing dynamic binary translation..."
+						if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
+							echo " Failed."
+							echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
+							return 2
+						fi
+						echo " Success."
+						
+						echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
+						cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
+						echo " Done."
+						;;
+					*)
+						echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
+						return 1
+						;;
+				esac
+				;;
+			*)
+				echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
+				return 1
+				;;
+		esac
+	else
+		echo "Not installing qemu for dynamic binary translation because the host and guest architectures are the same."
+	fi
 }
 
 function gentooinstall_phase_extract
@@ -118,17 +252,17 @@ function gentooinstall_phase_fstab
 		local ROOTUUID=$(lsblk -f -n -o UUID "$DEVICE"*2)
 		local SWAPUUID=$(lsblk -f -n -o UUID "$DEVICE"*3)
 		
-		sed -i -r "s/\/dev\/BOOT.*/UUID=$BOOTUUID  \/boot  msdos  noauto,noatime  1 2/" /etc/fstab
-		sed -i -r "s/\/dev\/ROOT.*/UUID=$ROOTUUID  \/  ext4  noatime  0 1/" /etc/fstab
-		sed -i -r "s/\/dev\/SWAP.*/UUID=$SWAPUUID  none  swap  sw  0 0/" /etc/fstab
-		sed -i -r "/\/dev\/cdrom.*/d" /etc/fstab
-		sed -i -r "/\/dev\/fd0.*/d" /etc/fstab
+		mv /etc/fstab /etc/fstab.example
+		echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >>/etc/fstab
+		echo "UUID=$BOOTUUID  /boot  msdos  noauto,noatime  1 2" >>/etc/fstab
+		echo "UUID=$ROOTUUID  /  ext4  noatime  0 1" >>/etc/fstab
+		echo "UUID=$SWAPUUID  none  swap  sw  0 0" >>/etc/fstab
 		
 		echo "done."
 		
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase fstab -b "$DEVICE"
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase fstab -b "$DEVICE"
 	fi
 }
 
@@ -138,7 +272,7 @@ function gentooinstall_phase_kernel
 		env-update
 		source /etc/profile
 		
-		USE="symlink" emerge -1q sys-kernel/gentoo-sources
+		emerge -q sys-kernel/gentoo-sources
 		cd /usr/src/linux
 		local VERSION=$(grep '^VERSION' Makefile | sed -r 's/[^=]+ = //')
 		local PATCHLEVEL=$(grep '^PATCHLEVEL' Makefile | sed -r 's/[^=]+ = //')
@@ -146,14 +280,12 @@ function gentooinstall_phase_kernel
 		local EXTRAVERSION=$(grep '^EXTRAVERSION' Makefile | sed -r 's/[^=]+ = //')
 		local NAME=$(grep '^NAME' Makefile | sed -r 's/[^=]+ = //')
 		make defconfig
-		make
+		KERNEL=$(make -j$THREADS | tee /dev/tty | grep '^Kernel' | sed -r 's/^Kernel: (.*) is ready.*$/\1/')
 		make modules_install
-		cp arch/x86_64/boot/bzImage /boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION
-		KERNEL="/boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION"
-		
+		cp "$KERNEL" /boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase kernel
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase kernel
 	fi
 }
 
@@ -168,15 +300,8 @@ function gentooinstall_phase_locale
 		eselect locale set en_US.utf8
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
 	fi
-}
-
-function gentooinstall_phase_makeconf
-{
-	echo "Patching /etc/portage/make.conf"
-	echo "CiMgaGFyZHdhcmUKI0NQVV9GTEFHU19YODY9IiRVU0UgM2Rub3cgM2Rub3dleHQgYXZ4IG1teCBtbXhleHQgc3NlIHNzZTIgc3NzZTMiCiNVU0U9IiRVU0UgYWNwaSBhcG0gYmx1ZXRvb3RoIGNwdWRldGVjdGlvbiBoZGR0ZW1wIGllZWUxMzk0IGxtX3NlbnNvcnMgc21wIHVzYiB3aWZpIgojIHNlcnZlcgojVVNFPSIkVVNFIGFjbCBjcnlwdCBjdXBzIGljdSBpZG4gaW1hcCBpcHY2IGt2bSBsYXJnZWZpbGUgbGRhcCBsem1hIGx6byBtbWFwIG11bHRpbGliIG5ldHdvcmsgcG9zaXggc2FtYmEgc2hhcmVkbWVtIHNvY2tldHMgc3NsIHN5c2xvZyB0aHJlYWRzIHVkZXYgdW5pY29kZSB2bmMgeGF0dHIiCiMgZGVza3RvcAojVVNFPSIkVVNFIHB1bHNlYXVkaW8iCgojQUNDRVBUX0xJQ0VOU0U9IioiCiNJTlBVVF9ERVZJQ0VTPSJldmRldiBrZXlib2FyZCBtb3VzZSBzeW5hcHRpY3MiCiNMSU5HVUFTPSJlbiBlbl9VUyIK" \
-		| base64 --decode >>"$DESTINATION"/etc/portage/make.conf
 }
 
 function gentooinstall_phase_mount
@@ -287,31 +412,8 @@ function gentooinstall_phase_portage
 		touch /etc/portage/package.use/zzzz-autounmask-write
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
 	fi
-}
-
-# Copies static qemu binaries into the install destionation
-function gentooinstall_phase_qemu
-{
-	case "$ARCHITECTURE" in
-		"armv4tl" | "armv5tel" | "armv6j" | "armv6j_hardfp" | "armv7a" | "armv7a_hardfp")
-			if [ ! -d /proc/sys/fs/binfmt_misc ]; then
-				echo "error: kernel support for 'misc binaries' is required"
-				return 1
-			elif ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
-				echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
-				return 2
-			elif ! "$DESTINATION"/bin/busybox true; then
-				echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
-				return 2
-			fi
-			cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
-			;;
-		*)
-			echo "error: unsupported architecture: \"$ARCHITECTURE\""
-			return 1;;
-	esac
 }
 
 function gentooinstall_phase_resolvconf
@@ -342,43 +444,43 @@ function gentooinstall_phase_stage3
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"amd64")
+			"x86_64")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv4tl")
+			"armv4")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv5tel")
+			"armv5")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv6j")
+			"armv6")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv6j_hardfp")
+			"armv6hf")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv7a")
+			"armv7")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			"armv7a_hardfp")
+			"armv7hf")
 				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
 				BASENAME=$(basename "$LATEST")
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
@@ -427,7 +529,7 @@ function gentooinstall_phase_timezone
 		emerge --config sys-libs/timezone-data
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
 	fi
 }
 
@@ -437,24 +539,13 @@ function gentooinstall_phase_update
 		env-update
 		source /etc/profile
 		
-		# list the news to help the user debug any unexpected failures
-		eselect news list
-		emerge -1u --backtrack=1024 --quiet sys-apps/portage
-		emerge -uDN --with-bdeps=y --backtrack=1024 --quiet world
+		emerge -1u --backtrack=65536 --quiet sys-apps/portage
+		emerge -uDN --with-bdeps=y --backtrack=65536 --quiet world
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
-		$SETARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
 	fi
 }
-
-#------------------------------------------------------------------------------
-# hard coded variables
-
-CODENAME=gentooinstall
-DISPLAYNAME="Gentoo Install"
-VERSION="0.0.0.0"
-DEBUG=false
-TMP="/tmp"
 
 #------------------------------------------------------------------------------
 # default configuration
@@ -462,18 +553,21 @@ TMP="/tmp"
 EMAIL=""
 NICE=0
 VERBOSITY=0
-ARCHITECTURE=amd64
-SETARCH=""
+ARCHITECTURE=$(gentooinstall_architecture)
+THREADS=$(grep -c processor /proc/cpuinfo)
 CHROOT=false
+CHROOTARCH=""
 DEVICE=/tmp/none
 DEVICE_PARTITION_TYPE=gpt
 DEVICE_BLOCK_SIZE=$((1024*1024))
 STAGE3="latest"
 DESTINATION=/mnt/gentoo
-PHASES="stage3,stage3digest,stage3hash,extract,deletestage3,resolvconf,makeconf,mountchroot,portage,timezone,locale,kernel,fstab,update"
+PHASES="stage3,stage3digest,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update"
 PORTAGE="latest"
 TIMEZONE="UTC"
 KERNEL="/boot/kernel"
+DEBUG=false
+TMP="/tmp"
 
 #------------------------------------------------------------------------------
 # command line arguments
@@ -538,8 +632,11 @@ while [ $# -ne 0 ]; do
 	esac
 done
 
-if [ "$ARCHITECTURE"="i686" ]; then
-	SETARCH="linux32"
+if [ "$(gentooinstall_architecture)" = "x86_64" -a "$ARCHITECTURE" = "i486" ]; then
+	CHROOTARCH="linux32"
+fi
+if [ "$(gentooinstall_architecture)" = "x86_64" -a "$ARCHITECTURE" = "i686" ]; then
+	CHROOTARCH="linux32"
 fi
 
 #------------------------------------------------------------------------------
