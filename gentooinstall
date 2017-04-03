@@ -84,20 +84,21 @@ function gentooinstall_help
 	echo "    A comma-separated list of which phases to run:"
 	echo "      partition"
 	echo "      mount"
-	echo "      stage3              default"
-	echo "      stage3digest        default"
-	echo "      stage3hash          default"
-	echo "      extract             default"
-	echo "      dynamictranslation  default"
-	echo "      deletestage3        default"
-	echo "      resolvconf          default"
-	echo "      mountchroot         default"
-	echo "      portage             default"
-	echo "      timezone            default"
-	echo "      locale              default"
-	echo "      kernel"
-	echo "      fstab"
-	echo "      update              default"
+	echo "      stage3              default    Download the stage 3 tarball"
+	echo "      stage3digest        default    Verify the cryptographic signature"
+	echo "      stage3hash          default    Verify the hash"
+	echo "      extract             default    Extract the stage 3 tarball"
+	echo "      dynamictranslation  default    Enable dynamic translation if required"
+	echo "      deletestage3        default    Delete the stage 3 tarball"
+	echo "      resolvconf          default    Add default nameservers"
+	echo "      mountchroot         default    Mount the chroot environment"
+	echo "      portage             default    Install Portage"
+	echo "      timezone            default    Set the timezone"
+	echo "      locale              default    Set the locale"
+	echo "      kernel                         Install and compile the kernel"
+	echo "      fstab                          Add boot, root, and swap entries"
+	echo "      update              default    Update the world"
+	echo "      password            default    Set the root password"
 	echo "  --portage latest"
 	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
 	echo "  --stage3 latest"
@@ -140,6 +141,7 @@ function gentooinstall_main
 			"kernel")             gentooinstall_phase_kernel;;
 			"fstab")              gentooinstall_phase_fstab;;
 			"update")             gentooinstall_phase_update;;
+			"password")           gentooinstall_phase_password;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
 				break
@@ -547,27 +549,41 @@ function gentooinstall_phase_update
 	fi
 }
 
+function gentooinstall_phase_password
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		echo "root:$PASSWORD" | chpasswd
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase password --password "$PASSWORD"
+	fi
+}
+
 #------------------------------------------------------------------------------
 # default configuration
 
-EMAIL=""
-NICE=0
-VERBOSITY=0
 ARCHITECTURE=$(gentooinstall_architecture)
-THREADS=$(grep -c processor /proc/cpuinfo)
 CHROOT=false
 CHROOTARCH=""
-DEVICE=/tmp/none
-DEVICE_PARTITION_TYPE=gpt
-DEVICE_BLOCK_SIZE=$((1024*1024))
-STAGE3="latest"
-DESTINATION=/mnt/gentoo
-PHASES="stage3,stage3digest,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update"
-PORTAGE="latest"
-TIMEZONE="UTC"
-KERNEL="/boot/kernel"
 DEBUG=false
+DESTINATION=/mnt/gentoo
+DEVICE=/tmp/none
+DEVICE_BLOCK_SIZE=$((1024*1024))
+DEVICE_PARTITION_TYPE=gpt
+EMAIL=""
+KERNEL="/boot/kernel"
+NICE=0
+PASSWORD="password"
+PHASES="stage3,stage3digest,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update,password"
+PORTAGE="latest"
+STAGE3="latest"
+THREADS=$(grep -c processor /proc/cpuinfo)
+TIMEZONE="UTC"
 TMP="/tmp"
+VERBOSITY=0
 
 #------------------------------------------------------------------------------
 # command line arguments
@@ -608,6 +624,10 @@ while [ $# -ne 0 ]; do
 		"-h"|"--help")
 			gentooinstall_help
 			exit
+			;;
+		"--password")
+			PASSWORD="$2"
+			shift 2
 			;;
 		"-p"|"--phase")
 			PHASES="$2"
