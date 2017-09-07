@@ -107,8 +107,8 @@ function gentooinstall_help
 	echo "    Which timezone to configure."
 	echo
 	echo "Examples:"
-	echo "  gentooinstall -a x86_64 -d /mnt/gentoo -t \"Canada/Mountain\""
-	echo "  gentooinstall -a x86_64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
+	echo "  $CODENAME -a x86_64 -d /mnt/gentoo -t \"Canada/Mountain\""
+	echo "  $CODENAME -a x86_64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"
@@ -120,6 +120,23 @@ function gentooinstall_help
 # \brief The main function of this script
 function gentooinstall_main
 {
+	#give the user a chance to cancel the install
+	if ! $CHROOT; then
+		echo "Installing Gentoo..."
+		echo
+		echo "We are the Gentoo Community."
+		sleep 2
+		echo "Power your systems and surrender your chips."
+		sleep 2
+		echo "Your ideological and technological distinctiveness will be added to our own."
+		sleep 2
+		echo "You will adapt to serve us."
+		sleep 2
+		echo "Resistance is futile."
+		sleep 2
+		echo
+	fi
+
 	#iterate through each phase
 	local CURRENT_PHASE=$(echo -n "$PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 	local REMAINING_PHASES=$(echo -n "$PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
@@ -189,7 +206,8 @@ function gentooinstall_phase_dynamictranslation
 						if [ ! -d /proc/sys/fs/binfmt_misc ]; then
 							echo " Failed."
 							echo "error: kernel support for 'misc binaries' is required"
-							return 1
+							echo "hint: on Gentoo this can be enabled by starting the qemu-binfmt service"
+							return 2
 						fi
 						echo " Success."
 						
@@ -197,7 +215,8 @@ function gentooinstall_phase_dynamictranslation
 						if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
 							echo " Failed."
 							echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
-							return 2
+							echo "hint: on Gentoo this can be fixed by enabling the static-user use flag"
+							return 3
 						fi
 						echo " Success."
 						
@@ -205,7 +224,8 @@ function gentooinstall_phase_dynamictranslation
 						if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
 							echo " Failed."
 							echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
-							return 2
+							echo "hint: try running the same test manually before continuing: \"$DESTINATION/bin/busybox true\""
+							return 4
 						fi
 						echo " Success."
 						
