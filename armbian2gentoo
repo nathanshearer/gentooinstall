@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+NAME="armbian2gentoo"
+CODENAME="armbian2gentoo"
+COPYRIGHT="Copyright (C) 2017 Nathan Shearer"
+LICENSE="GNU General Public License 2.0"
+VERSION="0.0.0.0"
+
+# \brief Find the root file system
+# \param $1 The image file to scan
+function armbian2gentoo_findroot
+{
+	echo -n "Finding the root file system..."
+	mkdir "$TMP/root"
+	while read PARTED_LINE; do
+		ROOT_PARTITION_NUMBER=$(echo -n "$PARTED_LINE" | cut -d : -f 1)
+		ROOT_PARTITION_START=$(echo -n "$PARTED_LINE" | cut -d : -f 2 | grep -E -o '[0-9]+')
+		ROOT_PARTITION_END=$(echo -n "$PARTED_LINE" | cut -d : -f 3 | grep -E -o '[0-9]+')
+		ROOT_PARTITION_SIZE=$(echo -n "$PARTED_LINE" | cut -d : -f 4 | grep -E -o '[0-9]+')
+		ROOT_FILESYSTEM=$(echo -n "$PARTED_LINE" | cut -d : -f 5)
+		mount -o loop,ro,offset=$ROOT_PARTITION_START,sizelimit=$ROOT_PARTITION_SIZE "$1" "$TMP/root"
+		if [ -f "$TMP/root/sbin/init" ]; then
+			echo "Root file system found:"
+			echo "  Partition Number: $ROOT_PARTITION_NUMBER"
+			echo "  Partition Start: $ROOT_PARTITION_START"
+			echo "  Partition End: $ROOT_PARTITION_END"
+			echo "  Partition Size: $ROOT_PARTITION_SIZE"
+			echo "  File system: $ROOT_FILESYSTEM"
+		fi
+		umount "$TMP/root"
+	done < <(parted -s -m "$1" unit b p | tail -n +3)
+	echo " done."
+}
+
+function armbian2gentoo_help
+{
+	#     01234567890123456789012345678901234567890123456789012345678901234567890123456789
+	echo "Description:"
+	echo "  Convert an armbian image to a new Gentoo installation."
+	echo
+	echo "Usage:"
+	echo "  $CODENAME [options] armbian_url"
+	echo
+	echo "Options:"
+	echo "  -a, --architecture armv7hf"
+	echo "    Which architecture to install."
+	echo "  -h, --help"
+	echo "    Display this help message and exit."
+	echo "  -i, --image armbian_url"
+	echo "    The URL of the armbian image."
+	echo "  -o, --output gentoo.img"
+	echo "    The output image file name."
+	echo
+	echo "Examples:"
+	echo "  $CODENAME https://dl.armbian.com/bananapi/Debian_jessie_next.7z"
+	echo "  $CODENAME https://dl.armbian.com/bananapim2/Debian_jessie_next.7z"
+	echo "  $CODENAME https://dl.armbian.com/odroidc1/Debian_jessie_default.7z"
+	echo "  $CODENAME https://dl.armbian.com/odroidc2/Debian_jessie_default.7z"
+	echo "  $CODENAME https://dl.armbian.com/orangepipc/Ubuntu_xenial_default.7z"
+	echo "  $CODENAME https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z"
+	echo "  $CODENAME https://dl.armbian.com/pine64/Ubuntu_xenial_dev_nightly.7z"
+	echo
+	echo "Version:"
+	echo "  $NAME $VERSION"
+	echo "  $COPYRIGHT"
+	echo "  Licensed under $LICENSE"
+	exit
+}
+
+function armbian2gentoo_main
+{
+	echo "Downloading the armbian image..."
+	wget -q --show-progress "$ARMBIAN_URL" -O "$TMP/armbian.7z"
+	echo -n "Extracting the armbian image..."
+	7z x -o"$TMP/" "$TMP/armbian.7z" >/dev/null
+	echo " done."
+	local ARMBIAN_IMAGE=$(ls "$TMP"/*.img)
+	
+	armbian2gentoo_findroot "$ARMBIAN_IMAGE"
+	
+	echo "Increasing the size of the root file system (to accommodate the gentoo install)..."
+	dd status=none if=/dev/zero bs=1MiB count=0 seek=8192 of="$ARMBIAN_IMAGE"
+	parted -s "$ARMBIAN_IMAGE" resizepart $ROOT_PARTITION_NUMBER 8191MiB
+	losetup -o "$ROOT_PARTITION_START" --sizelimit 8191MiB -f "$ARMBIAN_IMAGE"
+	local LOOPDEV=$(losetup -j "$ARMBIAN_IMAGE" | cut -d ':' -f 1)
+	e2fsck -f "$LOOPDEV"
+	resize2fs "$LOOPDEV"
+	
+	echo "Mounting the root filesystem at "$TMP"/root..."
+	mkdir -p "$TMP"/root
+	mount "$LOOPDEV" "$TMP"/root
+	
+	echo "Moving armbian out of the way..."
+	mkdir "$TMP"/root/oldroot
+	mv "$TMP"/root/* "$TMP"/root/oldroot
+	
+	./gentooinstall -d "$TMP"/root -a $ARCHITECTURE -t "Canada/Mountain"
+	
+	echo "Moving boot, fstab and the armbian kernel modules back into place..."
+	rm -rf "$TMP"/root/boot
+	mv -f "$TMP"/root/oldroot/boot "$TMP"/root
+	mv -f "$TMP"/root/oldroot/etc/fstab "$TMP"/root/etc/fstab
+	mv -f "$TMP"/root/oldroot/lib/modules "$TMP"/root/lib
+	
+	echo "Removing armbian..."
+	rm -rf "$TMP"/root/oldroot
+	
+	echo "Shrinking the root filesystem..."
+	umount -l "$TMP"/root/{dev,proc,sys}
+	umount "$TMP"/root
+	e2fsck -f -y "$LOOPDEV"
+	resize2fs -M -p "$LOOPDEV"
+	local ROOT_FILESYSTEM_BLOCK_COUNT=$(tune2fs -l "$LOOPDEV" | grep "Block count:" | cut -d ':' -f 2)
+	local ROOT_FILESYSTEM_BLOCK_SIZE=$(tune2fs -l "$LOOPDEV" | grep "Block size:" | cut -d ':' -f 2)
+	local ROOT_FILESYSTEM_SIZE=$(( $ROOT_FILESYSTEM_BLOCK_COUNT * $ROOT_FILESYSTEM_BLOCK_SIZE ))
+	
+	echo "Shrinking the partition..."
+	losetup -d "$LOOPDEV"
+	parted -s "$ARMBIAN_IMAGE" rm $ROOT_PARTITION_NUMBER
+	parted -s "$ARMBIAN_IMAGE" mkpart primary $ROOT_FILESYSTEM ${ROOT_PARTITION_START}b $(( $ROOT_PARTITION_START + $ROOT_FILESYSTEM_SIZE - 1 ))b
+	# shrink the image
+	truncate -s $(( $ROOT_PARTITION_START + $ROOT_FILESYSTEM_SIZE )) "$ARMBIAN_IMAGE"
+	mv "$ARMBIAN_IMAGE" "$OUTPUT_IMAGE"
+}
+
+#------------------------------------------------------------------------------
+# default configuration
+#
+
+ARCHITECTURE="armv7hf"
+ARMBIAN_URL="https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z"
+OUTPUT_IMAGE="gentoo.img"
+TMP="/tmp"
+
+#------------------------------------------------------------------------------
+# command line arguments
+#
+
+if [ $# -eq 0 ]; then
+	armbian2gentoo_help
+	exit 1
+fi
+
+while [ $# -ne 0 ]; do
+	case "$1" in
+		"-a"|"--architecture")
+			ARCHITECTURE="$2"
+			shift 2
+			;;
+		"-h"|"--help")
+			armbian2gentoo_help
+			exit
+			;;
+		"-i"|"--image")
+			ARMBIAN_URL="$2"
+			shift 2
+			;;
+		"-o"|"--output")
+			OUTPUT_IMAGE="$2"
+			shift 2
+			;;
+		*)
+			echo "error: unrecognized argument \"$1\""
+			exit 1
+			break;;
+	esac
+done
+
+#------------------------------------------------------------------------------
+# prepare environment
+#
+
+TMP="$TMP/$CODENAME.$$"
+mkdir -p "$TMP"
+
+#------------------------------------------------------------------------------
+# begin execution
+
+armbian2gentoo_main
+rm -rf "$TMP"
