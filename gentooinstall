@@ -32,6 +32,12 @@ function gentooinstall_architecture
 		else
 			echo "armv8"
 		fi
+	elif uname -m | grep -q "aarch64"; then
+		if grep -q fp /proc/cpuinfo; then
+			echo "armv8hf"
+		else
+			echo "armv8"
+		fi
 	elif uname -m | grep -qx "i386"; then
 		echo "i386"
 	elif uname -m | grep -qx "i686"; then
@@ -508,7 +514,14 @@ function gentooinstall_phase_stage3
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
 				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
 				;;
-			*) exit 1;;
+			#"armv8"|"armv8hf")
+				#BASENAME="stage3-arm64-arm64-20170223.tar.bz2"
+				#wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/stage3-arm64-arm64-20170223.tar.bz2" -O "$DESTINATION/$BASENAME"
+				#wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/stage3-arm64-arm64-20170223.tar.bz2.DIGESTS" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				#;;
+			*)
+				echo "error: unsupported architecture: $ARCHITECTURE"
+				exit 1;;
 		esac
 	else
 		BASENAME=$(basename "$STAGE3")
