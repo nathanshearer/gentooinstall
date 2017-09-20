@@ -43,7 +43,7 @@ function armbian2gentoo_help
 	echo
 	echo "Options:"
 	echo "  -a, --architecture armv7hf"
-	echo "    Which architecture to install."
+	echo "    Which architecture to install. Default is armv7hf."
 	echo "  -h, --help"
 	echo "    Display this help message and exit."
 	echo "  -i, --image armbian_url"
@@ -52,13 +52,13 @@ function armbian2gentoo_help
 	echo "    The output image file name."
 	echo
 	echo "Examples:"
-	echo "  $CODENAME https://dl.armbian.com/bananapi/Debian_jessie_next.7z"
-	echo "  $CODENAME https://dl.armbian.com/bananapim2/Debian_jessie_next.7z"
-	echo "  $CODENAME https://dl.armbian.com/odroidc1/Debian_jessie_default.7z"
-	echo "  $CODENAME https://dl.armbian.com/odroidc2/Debian_jessie_default.7z"
-	echo "  $CODENAME https://dl.armbian.com/orangepipc/Ubuntu_xenial_default.7z"
-	echo "  $CODENAME https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z"
-	echo "  $CODENAME https://dl.armbian.com/pine64/Ubuntu_xenial_dev_nightly.7z"
+	echo "  $CODENAME -i https://dl.armbian.com/bananapi/Debian_jessie_next.7z -o bananapi.img"
+	echo "  $CODENAME -i https://dl.armbian.com/bananapim2/Debian_jessie_next.7z -o bananapim2.img"
+	echo "  $CODENAME -i https://dl.armbian.com/odroidc1/Debian_jessie_default.7z -o odroidc1.img"
+	echo "  $CODENAME -i https://dl.armbian.com/odroidc2/Debian_jessie_default.7z -o odroidc2.img"
+	echo "  $CODENAME -i https://dl.armbian.com/orangepipc/Ubuntu_xenial_default.7z -o orangepipc.img"
+	echo "  $CODENAME -i https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z -o orangepipc2.img"
+	echo "  $CODENAME -i https://dl.armbian.com/pine64/Ubuntu_xenial_dev_nightly.7z -o pine64.img"
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"
@@ -90,20 +90,26 @@ function armbian2gentoo_main
 	mkdir -p "$TMP"/root
 	mount "$LOOPDEV" "$TMP"/root
 	
-	echo "Moving armbian out of the way..."
-	mkdir "$TMP"/root/oldroot
-	mv "$TMP"/root/* "$TMP"/root/oldroot
+	echo -n "Moving armbian out of the way..."
+	mkdir "$TMP"/root/.oldroot
+	mv "$TMP"/root/* "$TMP"/root/.oldroot
+	echo " done."
 	
-	./gentooinstall -d "$TMP"/root -a $ARCHITECTURE -t "Canada/Mountain"
+	./gentooinstall -a "$ARCHITECTURE" -d "$TMP"/root
+	if [ $? -ne 0 ]; then
+		echo "error: gentooinstall failed"
+		echo "temporary files at \"$TMP\" have not been deleted"
+		exit 1
+	fi
 	
 	echo "Moving boot, fstab and the armbian kernel modules back into place..."
 	rm -rf "$TMP"/root/boot
-	mv -f "$TMP"/root/oldroot/boot "$TMP"/root
-	mv -f "$TMP"/root/oldroot/etc/fstab "$TMP"/root/etc/fstab
-	mv -f "$TMP"/root/oldroot/lib/modules "$TMP"/root/lib
+	mv -f "$TMP"/root/.oldroot/boot "$TMP"/root
+	mv -f "$TMP"/root/.oldroot/etc/fstab "$TMP"/root/etc/fstab
+	mv -f "$TMP"/root/.oldroot/lib/modules "$TMP"/root/lib
 	
 	echo "Removing armbian..."
-	rm -rf "$TMP"/root/oldroot
+	rm -rf "$TMP"/root/.oldroot
 	
 	echo "Shrinking the root filesystem..."
 	umount -l "$TMP"/root/{dev,proc,sys}
