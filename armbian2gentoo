@@ -50,6 +50,9 @@ function armbian2gentoo_help
 	echo "    The URL of the armbian image."
 	echo "  -o, --output gentoo.img"
 	echo "    The output image file name."
+	echo "  -p, --phase phase1,phase2,..."
+	echo "    The list of phases to pass to gentooinstall instead of using the default"
+	echo "    phases specified in gentooinstall."
 	echo
 	echo "Examples:"
 	echo "  $CODENAME -i https://dl.armbian.com/bananapi/Debian_jessie_next.7z -o bananapi.img"
@@ -95,7 +98,7 @@ function armbian2gentoo_main
 	mv "$TMP"/root/* "$TMP"/root/.oldroot
 	echo " done."
 	
-	./gentooinstall -a "$ARCHITECTURE" -d "$TMP"/root
+	./gentooinstall -a "$ARCHITECTURE" -d "$TMP"/root $PHASES
 	if [ $? -ne 0 ]; then
 		echo "error: gentooinstall failed"
 		echo "temporary files at \"$TMP\" have not been deleted"
@@ -136,6 +139,7 @@ function armbian2gentoo_main
 ARCHITECTURE="armv7hf"
 ARMBIAN_URL="https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z"
 OUTPUT_IMAGE="gentoo.img"
+PHASES=""
 TMP="/tmp"
 
 #------------------------------------------------------------------------------
@@ -163,6 +167,10 @@ while [ $# -ne 0 ]; do
 			;;
 		"-o"|"--output")
 			OUTPUT_IMAGE="$2"
+			shift 2
+			;;
+		"-p"|"--phase")
+			PHASES="-p $2"
 			shift 2
 			;;
 		*)

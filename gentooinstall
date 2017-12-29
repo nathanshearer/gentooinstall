@@ -59,6 +59,18 @@ function gentooinstall_architecture
 	fi
 }
 
+# \brief Ensures dependencies are present
+# \param $@ The dependencies to check for
+function gentooinstall_check_dependencies
+{
+	for TOOL in "$@"; do
+		if ! type "$TOOL" >/dev/null 2>/dev/null; then
+			echo "$CODENAME: \"$TOOL\" is required for this application to work correctly." >&2
+			exit
+		fi
+	done
+}
+
 # \brief Displays the help and exits the program
 function gentooinstall_help
 {
@@ -102,6 +114,7 @@ function gentooinstall_help
 	echo "      timezone            default    Set the timezone"
 	echo "      locale              default    Set the locale"
 	echo "      kernel                         Install and compile the kernel"
+	echo "      bootloader                     Configure and install lilo"
 	echo "      fstab                          Add boot, root, and swap entries"
 	echo "      update              default    Update the world"
 	echo "      password            default    Set the root password"
@@ -128,7 +141,7 @@ function gentooinstall_main
 {
 	#give the user a chance to cancel the install
 	if ! $CHROOT; then
-		echo "Installing Gentoo..."
+		echo "Installing Gentoo at \"$DESTINATION\"..."
 		echo
 		echo "We are the Gentoo Community."
 		sleep 2
@@ -162,6 +175,7 @@ function gentooinstall_main
 			"timezone")           gentooinstall_phase_timezone;;
 			"locale")             gentooinstall_phase_locale;;
 			"kernel")             gentooinstall_phase_kernel;;
+			"bootloader")         gentooinstall_phase_bootloader;;
 			"fstab")              gentooinstall_phase_fstab;;
 			"update")             gentooinstall_phase_update;;
 			"password")           gentooinstall_phase_password;;
@@ -177,6 +191,49 @@ function gentooinstall_main
 		CURRENT_PHASE=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 		REMAINING_PHASES=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
 	done
+}
+
+function gentooinstall_phase_bootloader
+{
+	if $CHROOT; then
+		env-update
+		source /etc/profile
+		
+		echo "Starting the bootloader phase..."
+
+		if [ ! -b "$DEVICE" ]; then
+			echo "error: \"$DEVICE\" is not a block device"
+			return 1
+		fi
+		
+		emerge -uq sys-boot/lilo
+		
+		KERNEL=$(ls /boot/vmlinuz-*)
+		if [ ! -f "$KERNEL" ]; then
+			echo "error: A kernel was not found at \"$KERNEL\""
+			return 1
+		fi
+		KERNEL_VERSION=$(echo "$KERNEL" | sed -r 's/^.*-//')
+		ROOTPARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE"*2)
+		
+		# some hard drives use characters in their id that causes lilo to break when using boot=/dev/disk/by-id
+		# this symlink is a workaround for that problem
+		BOOTBYID=$(find -L /dev/disk/by-id -samefile "$DEVICE" | head -n 1)
+		ln -s "$BOOTBYID" /etc/lilo.conf.boot
+		
+		echo "default=$KERNEL_VERSION" >/etc/lilo.conf
+		echo "prompt" >>/etc/lilo.conf
+		echo "timeout=50" >>/etc/lilo.conf
+		echo "boot=/etc/lilo.conf.boot" >>/etc/lilo.conf
+		echo "image=$KERNEL" >>/etc/lilo.conf
+		echo "	label=$KERNEL_VERSION" >>/etc/lilo.conf
+		echo "	append=\"root=PARTUUID=$ROOTPARTUUID rootwait\"" >>/etc/lilo.conf
+		
+		lilo
+	else
+		cp -f "$THIS" "$DESTINATION/tmp"
+		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase bootloader -b "$DEVICE"
+	fi
 }
 
 function gentooinstall_phase_deletestage3
@@ -198,6 +255,13 @@ function gentooinstall_phase_dynamictranslation
 			"armv7hf")
 				case "$ARCHITECTURE" in
 					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7")
+						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
+						;;
+				esac
+				;;
+			"armv8hf")
+				case "$ARCHITECTURE" in
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "armv8")
 						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
 						;;
 				esac
@@ -532,6 +596,7 @@ function gentooinstall_phase_stage3
 
 function gentooinstall_phase_stage3digest
 {
+	gentooinstall_check_dependencies gpg
 	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
 	gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910 >/dev/null 2>/dev/null
 	gpg --verify "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null 2>/dev/null
@@ -620,7 +685,6 @@ VERBOSITY=0
 
 #------------------------------------------------------------------------------
 # command line arguments
-#
 
 if [ $# -eq 0 ]; then
 	gentooinstall_help
@@ -693,7 +757,9 @@ if [ "$(gentooinstall_architecture)" = "x86_64" -a "$ARCHITECTURE" = "i686" ]; t
 fi
 
 #------------------------------------------------------------------------------
+# prepare environment
+
+#------------------------------------------------------------------------------
 # begin execution
-#
 
 gentooinstall_main
