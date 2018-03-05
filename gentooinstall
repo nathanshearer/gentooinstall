@@ -85,7 +85,7 @@ function gentooinstall_help
 	echo "  -a, --architecture x86_64"
 	echo "    Which architecture to install. Default is the current architecture. Supported"
 	echo "    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,"
-	echo "    armv7hf."
+	echo "    armv7hf, armv8, armv8hf."
 	echo "  -b, --block-device /tmp/none"
 	echo "    Which block device to partition."
 	echo "  --block-device-block-size $((1024*1024))"
@@ -102,8 +102,8 @@ function gentooinstall_help
 	echo "    A comma-separated list of which phases to run:"
 	echo "      partition"
 	echo "      mount"
-	echo "      stage3              default    Download the stage 3 tarball"
-	echo "      stage3digest        default    Verify the cryptographic signature"
+	echo "      stage3download      default    Download the stage 3 tarball"
+	echo "      stage3signature     default    Verify the cryptographic signature"
 	echo "      stage3hash          default    Verify the hash"
 	echo "      extract             default    Extract the stage 3 tarball"
 	echo "      dynamictranslation  default    Enable dynamic translation if required"
@@ -163,8 +163,8 @@ function gentooinstall_main
 		case "$CURRENT_PHASE" in
 			"partition")          gentooinstall_phase_partition;;
 			"mount")              gentooinstall_phase_mount;;
-			"stage3")             gentooinstall_phase_stage3;;
-			"stage3digest")       gentooinstall_phase_stage3digest;;
+			"stage3download")     gentooinstall_phase_stage3download;;
+			"stage3signature")    gentooinstall_phase_stage3signature;;
 			"stage3hash")         gentooinstall_phase_stage3hash;;
 			"extract")            gentooinstall_phase_extract;;
 			"dynamictranslation") gentooinstall_phase_dynamictranslation;;
@@ -238,7 +238,7 @@ function gentooinstall_phase_bootloader
 
 function gentooinstall_phase_deletestage3
 {
-	rm "$DESTINATION"/stage3-*.tar.bz2*
+	rm "$DESTINATION"/stage3-*.tar.*
 }
 
 function gentooinstall_phase_dynamictranslation
@@ -271,7 +271,7 @@ function gentooinstall_phase_dynamictranslation
 					"i486" | "i686" | "x86_64")
 						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
 						;;
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "armv8hf")
 						echo -n "Verifying kernel support for 'misc binaries'..."
 						if [ ! -d /proc/sys/fs/binfmt_misc ]; then
 							echo " Failed."
@@ -281,14 +281,32 @@ function gentooinstall_phase_dynamictranslation
 						fi
 						echo " Success."
 						
-						echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
-						if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
-							echo " Failed."
-							echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
-							echo "hint: on Gentoo this can be fixed by enabling the static-user use flag"
-							return 3
-						fi
-						echo " Success."
+						case "$ARCHITECTURE" in
+							"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+								echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
+								if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+									echo " Failed."
+									echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+									echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+									return 3
+								fi
+								echo " Success."
+								;;
+							"armv8hf")
+								echo -n "Verifying that \"/usr/bin/qemu-aarch64\" is a static binary..."
+								if ! file /usr/bin/qemu-aarch64 | grep 'statically linked' >/dev/null; then
+									echo " Failed."
+									echo "error: the file \"/usr/bin/qemu-aarch64\" is not a static binary"
+									echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+									return 3
+								fi
+								echo " Success."
+								;;
+							*)
+								echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
+								return 1
+								;;
+						esac
 						
 						echo -n "Testing dynamic binary translation..."
 						if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
@@ -299,9 +317,22 @@ function gentooinstall_phase_dynamictranslation
 						fi
 						echo " Success."
 						
-						echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
-						cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
-						echo " Done."
+						case "$ARCHITECTURE" in
+							"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+								echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
+								cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
+								echo " Done."
+								;;
+							"armv8hf")
+								echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
+								cp /usr/bin/qemu-aarch64 "$DESTINATION"/usr/bin
+								echo " Done."
+								;;
+							*)
+								echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
+								return 1
+								;;
+						esac
 						;;
 					*)
 						echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
@@ -321,9 +352,9 @@ function gentooinstall_phase_dynamictranslation
 
 function gentooinstall_phase_extract
 {
-	local STAGE3=$(ls "$DESTINATION"/stage3-*.tar.bz2)
+	local STAGE3=$(ls "$DESTINATION"/stage3-*.tar.* | head -n 1)
 	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION\"... "
-	tar xjpf "$DESTINATION"/stage3-*.tar.bz2 -C "$DESTINATION" --xattrs
+	tar xpf "$STAGE3" -C "$DESTINATION" --xattrs
 	echo "Done."
 }
 
@@ -518,71 +549,57 @@ function gentooinstall_phase_resolvconf
 }
 
 # \brief Download the latest stage3 tarball
-function gentooinstall_phase_stage3
+function gentooinstall_phase_stage3download
 {
 	echo "Downloading the stage 3 tarball..."
 	mkdir -p "$DESTINATION"
 	if [ "$STAGE3" = "latest" ]; then
 		case "$ARCHITECTURE" in
-			"i486")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i486.txt -O-| tail -n 1 | cut -d " " -f 1)
+			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf')
+				case "$ARCHITECTURE" in
+					'i486') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i486.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'i686') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i686.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'x86_64') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv4') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv5') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6hf') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7hf') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1);;
+				esac
 				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+				STAGE3_FILE="$DESTINATION/$BASENAME"
+				case "$ARCHITECTURE" in
+					'i486') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'i686') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'x86_64') wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv4') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv5') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+				esac
+				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS.asc"
+				case "$ARCHITECTURE" in
+					'i486') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'i686') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'x86_64') wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv4') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv5') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+				esac
 				;;
-			"i686")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i686.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+			"armv8"|"armv8hf")
+				BASENAME=$(wget http://distfiles.gentoo.org/experimental/arm64/ -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/")
+				STAGE3_FILE="$DESTINATION/$BASENAME"
+				wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
+				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS"
+				wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
 				;;
-			"x86_64")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv4")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv5")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv6")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv6hf")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv7")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			"armv7hf")
-				LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1)
-				BASENAME=$(basename "$LATEST")
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				;;
-			#"armv8"|"armv8hf")
-				#BASENAME="stage3-arm64-arm64-20170223.tar.bz2"
-				#wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/stage3-arm64-arm64-20170223.tar.bz2" -O "$DESTINATION/$BASENAME"
-				#wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/stage3-arm64-arm64-20170223.tar.bz2.DIGESTS" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
-				#;;
 			*)
 				echo "error: unsupported architecture: $ARCHITECTURE"
 				exit 1;;
@@ -594,27 +611,35 @@ function gentooinstall_phase_stage3
 	fi
 }
 
-function gentooinstall_phase_stage3digest
+function gentooinstall_phase_stage3signature
 {
 	gentooinstall_check_dependencies gpg
-	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910 >/dev/null 2>/dev/null
-	gpg --verify "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null 2>/dev/null
+	echo "Verifying the cryptographic signature of the stage3 hashes..."
+	# verify the gentoo public key is installed
+	gpg --fingerprint 0xBB572E0E2D182910 >/dev/null 2>/dev/null
 	if [ $? -ne 0 ]; then
-		echo "Failed."
-		echo "error: the cryptographic signature of \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\" could not be verified!"
+		echo "The Gentoo Linux Release Engineering public key is not installed"
+		echo "Installing the Gentoo Linux Release Engineering public key..."
+		gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910
+	fi
+	# check the signature
+	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
+	gpg --verify "$STAGE3_SIGNATURE" >/dev/null 2>/dev/null
+	if [ $? -ne 0 ]; then
+		echo "error: the cryptographic signature of \"$STAGE3_SIGNATURE\" could not be verified!"
 		exit 1
 	fi
-	echo "Success."
 }
 
 function gentooinstall_phase_stage3hash
 {
 	echo -n "Verifying the hash of the stage3 tarball... "
-	grep $(sha512sum "$DESTINATION/stage3-"*".tar.bz2") "$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc" >/dev/null
+	local STAGE3_FILE=$(ls "$DESTINATION/stage3-"*".tar."* | head -n 1)
+	local STAGE3_HASHES=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS"* | head -n 1)
+	grep $(sha512sum "$STAGE3_FILE") "$STAGE3_HASHES" >/dev/null
 	if [ $? -ne 0 ]; then
 		echo "Failed."
-		echo "error: the downloaded file \"$DESTINATION/stage3-"*".tar.bz2\" does not match the sha512sum hash in \"$DESTINATION/stage3-"*".tar.bz2.DIGESTS.asc\""
+		echo "error: the downloaded file \"$STAGE3_FILE\" does not match the sha512sum hash in \"$STAGE3_HASHES\""
 		exit 1
 	fi
 	echo "Success."
@@ -675,7 +700,7 @@ EMAIL=""
 KERNEL="/boot/kernel"
 NICE=0
 PASSWORD="password"
-PHASES="stage3,stage3digest,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update,password"
+PHASES="stage3download,stage3signature,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update,password"
 PORTAGE="latest"
 STAGE3="latest"
 THREADS=$(grep -c processor /proc/cpuinfo)
@@ -755,9 +780,6 @@ fi
 if [ "$(gentooinstall_architecture)" = "x86_64" -a "$ARCHITECTURE" = "i686" ]; then
 	CHROOTARCH="linux32"
 fi
-
-#------------------------------------------------------------------------------
-# prepare environment
 
 #------------------------------------------------------------------------------
 # begin execution
