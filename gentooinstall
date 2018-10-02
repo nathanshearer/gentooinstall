@@ -93,11 +93,15 @@ function gentooinstall_help
 	echo "  --block-device-partition-type gpt"
 	echo "    What type of a partition table to create: gpt or msdos."
 	echo "  --chroot false"
-	echo "    Chroot into the destination directory for the current phase."
+	echo "    Used internally to chroot into the destination directory for some phases."
 	echo "  -d, --destination /mnt/gentoo"
 	echo "    Where to install."
 	echo "  -h, --help"
 	echo "    Display this help message and exit."
+	echo "  --no-warning"
+	echo "    Do not display or wait for the 10-second pre-install warning."
+	echo "  --mirror http://distfiles.gentoo.org"
+	echo "    Download the stage3 files from a different mirror."
 	echo "  -p, --phase phase1,phase2,..."
 	echo "    A comma-separated list of which phases to run:"
 	echo "      partition"
@@ -140,7 +144,7 @@ function gentooinstall_help
 function gentooinstall_main
 {
 	#give the user a chance to cancel the install
-	if ! $CHROOT; then
+	if ! $CHROOT && $WARNING; then
 		echo "Installing Gentoo at \"$DESTINATION\"..."
 		echo
 		echo "We are the Gentoo Community."
@@ -405,7 +409,7 @@ function gentooinstall_phase_kernel
 		make defconfig
 		KERNEL=$(make -j$THREADS | tee /dev/tty | grep '^Kernel' | sed -r 's/^Kernel: (.*) is ready.*$/\1/')
 		make modules_install
-		cp "$KERNEL" /boot/$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION
+		cp "$KERNEL" /boot/vmlinuz-$VERSION.$PATCHLEVEL.$SUBLEVEL$EXTRAVERSION
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase kernel
@@ -468,7 +472,7 @@ function gentooinstall_phase_partition
 	if [ $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) -lt $((4096*1024*1024)) ]; then
 		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$DEVICE_BLOCK_SIZE + 1))
 	fi
-	# leave one block a the beginning for the partition table, and one block at the end for rounding errors
+	# leave one block at the beginning for the partition table, and one block at the end for rounding errors
 	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
 	
 	echo "Formatting with a $DEVICE_PARTITION_TYPE partition table and filesystems:"
@@ -557,48 +561,48 @@ function gentooinstall_phase_stage3download
 		case "$ARCHITECTURE" in
 			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf')
 				case "$ARCHITECTURE" in
-					'i486') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i486.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'i686') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/x86/autobuilds/latest-stage3-i686.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'x86_64') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/amd64/autobuilds/latest-stage3-amd64.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv4') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv4tl.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv5') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv5tel.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6hf') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a.txt -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7hf') LATEST=$(wget --quiet http://distfiles.gentoo.org/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt -O-| tail -n 1 | cut -d " " -f 1);;
+					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'x86_64') LATEST=$(wget --quiet "$MIRROR/releases/amd64/autobuilds/latest-stage3-amd64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv4') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv4tl.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv5') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv5tel.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 				esac
 				BASENAME=$(basename "$LATEST")
 				STAGE3_FILE="$DESTINATION/$BASENAME"
 				case "$ARCHITECTURE" in
-					'i486') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'i686') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'x86_64') wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv4') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv5') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'i486') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'i686') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'x86_64') wget -q --show-progress "$MIRROR/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv4') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv5') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 				esac
 				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS.asc"
 				case "$ARCHITECTURE" in
-					'i486') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'i686') wget -q --show-progress "http://distfiles.gentoo.org/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'x86_64') wget -q --show-progress "http://distfiles.gentoo.org/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv4') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv5') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7hf') wget -q --show-progress "http://distfiles.gentoo.org/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'i486') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'i686') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'x86_64') wget -q --show-progress "$MIRROR/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv4') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv5') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 				esac
 				;;
 			"armv8"|"armv8hf")
-				BASENAME=$(wget http://distfiles.gentoo.org/experimental/arm64/ -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/")
+				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/")
 				STAGE3_FILE="$DESTINATION/$BASENAME"
-				wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
+				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
 				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS"
-				wget -q --show-progress "http://distfiles.gentoo.org/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
+				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
 				;;
 			*)
 				echo "error: unsupported architecture: $ARCHITECTURE"
@@ -614,7 +618,7 @@ function gentooinstall_phase_stage3download
 function gentooinstall_phase_stage3signature
 {
 	gentooinstall_check_dependencies gpg
-	echo "Verifying the cryptographic signature of the stage3 hashes..."
+	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
 	# verify the gentoo public key is installed
 	gpg --fingerprint 0xBB572E0E2D182910 >/dev/null 2>/dev/null
 	if [ $? -ne 0 ]; then
@@ -626,9 +630,11 @@ function gentooinstall_phase_stage3signature
 	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
 	gpg --verify "$STAGE3_SIGNATURE" >/dev/null 2>/dev/null
 	if [ $? -ne 0 ]; then
+		echo "Failed."
 		echo "error: the cryptographic signature of \"$STAGE3_SIGNATURE\" could not be verified!"
 		exit 1
 	fi
+	echo "Success."
 }
 
 function gentooinstall_phase_stage3hash
@@ -698,6 +704,7 @@ DEVICE_BLOCK_SIZE=$((1024*1024))
 DEVICE_PARTITION_TYPE=gpt
 EMAIL=""
 KERNEL="/boot/kernel"
+MIRROR="http://distfiles.gentoo.org"
 NICE=0
 PASSWORD="password"
 PHASES="stage3download,stage3signature,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update,password"
@@ -707,6 +714,7 @@ THREADS=$(grep -c processor /proc/cpuinfo)
 TIMEZONE="UTC"
 TMP="/tmp"
 VERBOSITY=0
+WARNING=true
 
 #------------------------------------------------------------------------------
 # command line arguments
@@ -746,6 +754,14 @@ while [ $# -ne 0 ]; do
 		"-h"|"--help")
 			gentooinstall_help
 			exit
+			;;
+		"--mirror")
+			MIRROR="$2"
+			shift 2
+			;;
+		"--no-warning")
+			WARNING=false
+			shift
 			;;
 		"--password")
 			PASSWORD="$2"

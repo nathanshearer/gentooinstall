@@ -8,7 +8,7 @@ Options:
   -a, --architecture x86_64
     Which architecture to install. Default is the current architecture. Supported
     architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,
-    armv7hf.
+    armv7hf, armv8, armv8hf.
   -b, --block-device /tmp/none
     Which block device to partition.
   --block-device-block-size 1048576
@@ -16,17 +16,21 @@ Options:
   --block-device-partition-type gpt
     What type of a partition table to create: gpt or msdos.
   --chroot false
-    Chroot into the destination directory for the current phase.
+    Used internally to chroot into the destination directory for some phases.
   -d, --destination /mnt/gentoo
     Where to install.
   -h, --help
     Display this help message and exit.
+  --no-warning
+    Do not display or wait for the 10-second pre-install warning.
+  --mirror http://distfiles.gentoo.org
+    Download the stage3 files from a different mirror.
   -p, --phase phase1,phase2,...
     A comma-separated list of which phases to run:
       partition
       mount
-      stage3              default    Download the stage 3 tarball
-      stage3digest        default    Verify the cryptographic signature
+      stage3download      default    Download the stage 3 tarball
+      stage3signature     default    Verify the cryptographic signature
       stage3hash          default    Verify the hash
       extract             default    Extract the stage 3 tarball
       dynamictranslation  default    Enable dynamic translation if required
@@ -37,6 +41,7 @@ Options:
       timezone            default    Set the timezone
       locale              default    Set the locale
       kernel                         Install and compile the kernel
+      bootloader                     Configure and install lilo
       fstab                          Add boot, root, and swap entries
       update              default    Update the world
       password            default    Set the root password
