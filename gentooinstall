@@ -87,11 +87,11 @@ function gentooinstall_help
 	echo "    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,"
 	echo "    armv7hf, armv8, armv8hf."
 	echo "  -b, --block-device /tmp/none"
-	echo "    Which block device to partition."
+	echo "    The block device to partition."
 	echo "  --block-device-block-size $((1024*1024))"
-	echo "    What block size to align the partitions to."
+	echo "    The block size used for alignment."
 	echo "  --block-device-partition-type gpt"
-	echo "    What type of a partition table to create: gpt or msdos."
+	echo "    The type of a partition table to create: gpt or msdos."
 	echo "  --chroot false"
 	echo "    Used internally to chroot into the destination directory for some phases."
 	echo "  -d, --destination /mnt/gentoo"
@@ -209,30 +209,53 @@ function gentooinstall_phase_bootloader
 			echo "error: \"$DEVICE\" is not a block device"
 			return 1
 		fi
-		
+
 		emerge -uq sys-boot/lilo
-		
-		KERNEL=$(ls /boot/vmlinuz-*)
+
+		KERNEL_MAKEFILE="/usr/src/linux/Makefile"
+		if [ ! -f "$KERNEL_MAKEFILE" ]; then
+			echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+			return 1
+		fi
+		KERNEL_VERSION=$(grep ^VERSION /usr/src/linux/Makefile | sed -r 's/VERSION *= *//')
+		KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL /usr/src/linux/Makefile | sed -r 's/PATCHLEVEL *= *//')
+		KERNEL_SUBLEVEL=$(grep ^SUBLEVEL /usr/src/linux/Makefile | sed -r 's/SUBLEVEL *= *//')
+		KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION /usr/src/linux/Makefile | sed -r 's/EXTRAVERSION *= *//')
+
+		KERNEL="/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
 		if [ ! -f "$KERNEL" ]; then
 			echo "error: A kernel was not found at \"$KERNEL\""
 			return 1
 		fi
-		KERNEL_VERSION=$(echo "$KERNEL" | sed -r 's/^.*-//')
+
+		KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
+		if [ "$KERNEL_PATCHLEVEL" != "" ]; then
+			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
+		fi
+		if [ "$KERNEL_SUBLEVEL" != "" ]; then
+			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
+		fi
+		if [ "$KERNEL_EXTRAVERSION" != "" ]; then
+			KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
+		fi
+		cp -f "$KERNEL" "/boot/$KERNEL_FILENAME"
+		KERNEL="/boot/$KERNEL_FILENAME"
+
 		ROOTPARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE"*2)
-		
+
 		# some hard drives use characters in their id that causes lilo to break when using boot=/dev/disk/by-id
 		# this symlink is a workaround for that problem
 		BOOTBYID=$(find -L /dev/disk/by-id -samefile "$DEVICE" | head -n 1)
 		ln -s "$BOOTBYID" /etc/lilo.conf.boot
-		
-		echo "default=$KERNEL_VERSION" >/etc/lilo.conf
+
+		echo "default=$KERNEL_FILENAME" >/etc/lilo.conf
 		echo "prompt" >>/etc/lilo.conf
 		echo "timeout=50" >>/etc/lilo.conf
 		echo "boot=/etc/lilo.conf.boot" >>/etc/lilo.conf
 		echo "image=$KERNEL" >>/etc/lilo.conf
-		echo "	label=$KERNEL_VERSION" >>/etc/lilo.conf
+		echo "	label=$KERNEL_FILENAME" >>/etc/lilo.conf
 		echo "	append=\"root=PARTUUID=$ROOTPARTUUID rootwait\"" >>/etc/lilo.conf
-		
+
 		lilo
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
@@ -381,7 +404,7 @@ function gentooinstall_phase_fstab
 		
 		mv /etc/fstab /etc/fstab.example
 		echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >>/etc/fstab
-		echo "UUID=$BOOTUUID  /boot  msdos  noauto,noatime  1 2" >>/etc/fstab
+		echo "UUID=$BOOTUUID  /boot  vfat  noauto,noatime  0 0" >>/etc/fstab
 		echo "UUID=$ROOTUUID  /  ext4  noatime  0 1" >>/etc/fstab
 		echo "UUID=$SWAPUUID  none  swap  sw  0 0" >>/etc/fstab
 		
@@ -484,7 +507,7 @@ function gentooinstall_phase_partition
 		echo "  Serial Number: $DEVICE_SERIAL"
 	fi
 	echo "  Size: $DEVICE_SIZE Bytes"
-	echo "  Block Size: $DEVICE_BLOCK_SIZE Bytes"
+	echo "  Alignment Block Size: $DEVICE_BLOCK_SIZE Bytes"
 	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
