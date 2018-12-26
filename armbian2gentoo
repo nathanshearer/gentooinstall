@@ -74,7 +74,7 @@ function armbian2gentoo_help
 	echo "  $CODENAME -i https://dl.armbian.com/orangepipc/Ubuntu_xenial_default.7z -o orangepipc.img"
 	echo "  $CODENAME -i https://dl.armbian.com/orangepipc2/Ubuntu_xenial_dev_nightly.7z -o orangepipc2.img"
 	echo "  $CODENAME -i https://dl.armbian.com/pine64/Ubuntu_xenial_dev_nightly.7z -o pine64.img"
-	echo "  $CODENAME -a armv8hf -i https://dl.armbian.com/orangepipc2/Debian_stretch_next.7z -p stage3download,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,password -o orangepipc2.img"
+	echo "  $CODENAME -a aarch64 -i https://dl.armbian.com/orangepipc2/Debian_stretch_next.7z -p stage3download,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,password -o orangepipc2.img"
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"

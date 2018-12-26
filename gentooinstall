@@ -26,18 +26,8 @@ function gentooinstall_architecture
 		else
 			echo "armv7"
 		fi
-	elif uname -m | grep -q "armv8"; then
-		if grep -q vfp /proc/cpuinfo; then
-			echo "armv8hf"
-		else
-			echo "armv8"
-		fi
 	elif uname -m | grep -q "aarch64"; then
-		if grep -q fp /proc/cpuinfo; then
-			echo "armv8hf"
-		else
-			echo "armv8"
-		fi
+		echo "aarch64"
 	elif uname -m | grep -qx "i386"; then
 		echo "i386"
 	elif uname -m | grep -qx "i686"; then
@@ -85,7 +75,7 @@ function gentooinstall_help
 	echo "  -a, --architecture x86_64"
 	echo "    Which architecture to install. Default is the current architecture. Supported"
 	echo "    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,"
-	echo "    armv7hf, armv8, armv8hf."
+	echo "    armv7hf, aarch64."
 	echo "  -b, --block-device /tmp/none"
 	echo "    The block device to partition."
 	echo "  --block-device-block-size $((1024*1024))"
@@ -286,9 +276,9 @@ function gentooinstall_phase_dynamictranslation
 						;;
 				esac
 				;;
-			"armv8hf")
+			"aarch64")
 				case "$ARCHITECTURE" in
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "armv8")
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
 						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
 						;;
 				esac
@@ -298,7 +288,7 @@ function gentooinstall_phase_dynamictranslation
 					"i486" | "i686" | "x86_64")
 						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
 						;;
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "armv8hf")
+					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "aarch64")
 						echo -n "Verifying kernel support for 'misc binaries'..."
 						if [ ! -d /proc/sys/fs/binfmt_misc ]; then
 							echo " Failed."
@@ -319,7 +309,7 @@ function gentooinstall_phase_dynamictranslation
 								fi
 								echo " Success."
 								;;
-							"armv8hf")
+							"aarch64")
 								echo -n "Verifying that \"/usr/bin/qemu-aarch64\" is a static binary..."
 								if ! file /usr/bin/qemu-aarch64 | grep 'statically linked' >/dev/null; then
 									echo " Failed."
@@ -351,7 +341,7 @@ function gentooinstall_phase_dynamictranslation
 								cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
 								echo " Done."
 								;;
-							"armv8hf")
+							"aarch64")
 								echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
 								cp /usr/bin/qemu-aarch64 "$DESTINATION"/usr/bin
 								echo " Done."
@@ -621,7 +611,7 @@ function gentooinstall_phase_stage3download
 					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 				esac
 				;;
-			"armv8"|"armv8hf")
+			"aarch64")
 				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/")
 				STAGE3_FILE="$DESTINATION/$BASENAME"
 				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
