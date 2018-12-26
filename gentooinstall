@@ -185,12 +185,12 @@ function gentooinstall_main
 			"password")           gentooinstall_phase_password;;
 			*)
 				echo "error: unknown phase: \"$CURRENT_PHASE\""
-				break
+				return 1
 				;;
 		esac
-		if [ $? -eq 1 ]; then
+		if [ $? -ne 0 ]; then
 			echo "error: the $CURRENT_PHASE phase encountered an error"
-			exit 1
+			return 2
 		fi
 		CURRENT_PHASE=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 		REMAINING_PHASES=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
@@ -340,6 +340,7 @@ function gentooinstall_phase_dynamictranslation
 							echo " Failed."
 							echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
 							echo "hint: try running the same test manually before continuing: \"$DESTINATION/bin/busybox true\""
+							echo "hint: on a gentoo host try starting the qemu-binfmt service"
 							return 4
 						fi
 						echo " Success."
