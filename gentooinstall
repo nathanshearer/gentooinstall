@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="0.0.0.0"
+VERSION="1.0.0.0"
 
 function gentooinstall_architecture
 {
@@ -73,9 +73,12 @@ function gentooinstall_help
 	echo
 	echo "Options:"
 	echo "  -a, --architecture x86_64"
-	echo "    Which architecture to install. Default is the current architecture. Supported"
-	echo "    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,"
-	echo "    armv7hf, aarch64."
+	echo "    Which guest architecture to install. Default is the host architecture."
+	echo "    Supported architectures are:"
+	echo "      i486, i686, x86_64,"
+	echo "      armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,"
+	echo "      ppc, ppc64,"
+	echo "      alpha"
 	echo "  -b, --block-device /tmp/none"
 	echo "    The block device to partition."
 	echo "  --block-device-block-size $((1024*1024))"
@@ -113,15 +116,16 @@ function gentooinstall_help
 	echo "      update              default    Update the world"
 	echo "      password            default    Set the root password"
 	echo "  --portage latest"
-	echo "    Which portage snapshot to install, latest or a URL to a specific file to download."
+	echo "    Install the latest portage snapshot or provide a URL to a different version."
 	echo "  --stage3 latest"
-	echo "    Which stage3 tarball to install, latest or a URL to a specific file to download."
+	echo "    Install the latest stage3 tarball or provide a URL to a different version."
 	echo "  -t, --timezone \"UTC\""
 	echo "    Which timezone to configure."
 	echo
 	echo "Examples:"
-	echo "  $CODENAME -a x86_64 -d /mnt/gentoo -t \"Canada/Mountain\""
-	echo "  $CODENAME -a x86_64 -d /mnt/gentoo --portage \"https://www.example.com/portage-20160320.tar.bz2\""
+	echo "  $CODENAME -b /dev/sdzz -p partition,mount"
+	echo "  $CODENAME -t \"Canada/Mountain\""
+	echo "  $CODENAME -p bootloader,fstab"
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"
@@ -190,7 +194,7 @@ function gentooinstall_main
 function gentooinstall_phase_bootloader
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		
 		echo "Starting the bootloader phase..."
@@ -260,112 +264,155 @@ function gentooinstall_phase_deletestage3
 
 function gentooinstall_phase_dynamictranslation
 {
-	if [ $(gentooinstall_architecture) != "$ARCHITECTURE" ]; then
-		case $(gentooinstall_architecture) in
-			"armv6hf")
-				case "$ARCHITECTURE" in
-					"armv4" | "armv5" | "armv6")
-						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
-						;;
-				esac
-				;;
-			"armv7hf")
-				case "$ARCHITECTURE" in
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7")
-						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
-						;;
-				esac
-				;;
-			"aarch64")
-				case "$ARCHITECTURE" in
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
-						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
-						;;
-				esac
-				;;
-			"x86_64")
-				case "$ARCHITECTURE" in
-					"i486" | "i686" | "x86_64")
-						echo "Not installing qemu for dynamic binary translation because the guest architecture is nativly supported by the host."
-						;;
-					"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf" | "aarch64")
-						echo -n "Verifying kernel support for 'misc binaries'..."
-						if [ ! -d /proc/sys/fs/binfmt_misc ]; then
-							echo " Failed."
-							echo "error: kernel support for 'misc binaries' is required"
-							echo "hint: on Gentoo this can be enabled by starting the qemu-binfmt service"
-							return 2
-						fi
-						echo " Success."
-						
-						case "$ARCHITECTURE" in
-							"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
-								echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
-								if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
-									echo " Failed."
-									echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
-									echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
-									return 3
-								fi
-								echo " Success."
-								;;
-							"aarch64")
-								echo -n "Verifying that \"/usr/bin/qemu-aarch64\" is a static binary..."
-								if ! file /usr/bin/qemu-aarch64 | grep 'statically linked' >/dev/null; then
-									echo " Failed."
-									echo "error: the file \"/usr/bin/qemu-aarch64\" is not a static binary"
-									echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
-									return 3
-								fi
-								echo " Success."
-								;;
-							*)
-								echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
-								return 1
-								;;
-						esac
-						
-						echo -n "Testing dynamic binary translation..."
-						if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
-							echo " Failed."
-							echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
-							echo "hint: try running the same test manually before continuing: \"$DESTINATION/bin/busybox true\""
-							echo "hint: on a gentoo host try starting the qemu-binfmt service"
-							return 4
-						fi
-						echo " Success."
-						
-						case "$ARCHITECTURE" in
-							"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
-								echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
-								cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
-								echo " Done."
-								;;
-							"aarch64")
-								echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
-								cp /usr/bin/qemu-aarch64 "$DESTINATION"/usr/bin
-								echo " Done."
-								;;
-							*)
-								echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
-								return 1
-								;;
-						esac
-						;;
-					*)
-						echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
-						return 1
-						;;
-				esac
-				;;
-			*)
-				echo "error: unsupported host/guest combination with host=$(gentooinstall_architecture) and guest=$ARCHITECTURE"
-				return 1
-				;;
-		esac
-	else
-		echo "Not installing qemu for dynamic binary translation because the host and guest architectures are the same."
+	ARCH_HOST=$(gentooinstall_architecture)
+	ARCH_GUEST="$ARCHITECTURE"
+	
+	# do not install qemu for identical host and guest architectures
+	if [ "$ARCH_HOST" = "$ARCH_GUEST" ]; then
+		echo "Not installing qemu for dynamic binary translation because the host and guest are the same architecture."
+		return 0
 	fi
+	
+	# do not install qemu when the guest is supported by the host
+	local ARCH_GUEST_NATIVELY_SUPPORTED=false
+	if [ "$ARCH_HOST" = 'x86_64' ]; then
+		if [ "$ARCH_GUEST" = 'i486' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'i686' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+	fi
+	if [ "$ARCH_HOST" = 'aarch64' ]; then
+		if [ "$ARCH_GUEST" = 'armv4' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv5' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv6' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv6hf' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv7' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv7hf' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+	fi
+	if [ "$ARCH_HOST" = 'armv7hf' ]; then
+		if [ "$ARCH_GUEST" = 'armv4' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv5' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv6' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv6hf' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv7' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+	fi
+	if [ "$ARCH_HOST" = 'armv6hf' ]; then
+		if [ "$ARCH_GUEST" = 'armv4' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv5' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+		if [ "$ARCH_GUEST" = 'armv6' ]; then ARCH_GUEST_NATIVELY_SUPPORTED=true; fi
+	fi
+	if $ARCH_GUEST_NATIVELY_SUPPORTED; then
+		echo "Not installing qemu for dynamic binary translation because the guest architecture is natively supported by the host."
+		return 0
+	fi
+	
+	# beyond this point install qemu because the guest is not natively supported by the host
+	
+	echo -n "Verifying kernel support for 'misc binaries'..."
+	if [ ! -d /proc/sys/fs/binfmt_misc ]; then
+		echo " Failed."
+		echo "error: kernel support for 'misc binaries' is required"
+		echo "hint: on Gentoo this can be enabled by starting the qemu-binfmt service"
+		return 2
+	fi
+	echo " Success."
+	
+	case "$ARCH_GUEST" in
+		"aarch64")
+			echo -n "Verifying that \"/usr/bin/qemu-aarch64\" is a static binary..."
+			if ! file /usr/bin/qemu-aarch64 | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-aarch64\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
+		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+			echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
+			if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
+		"ppc")
+			echo -n "Verifying that \"/usr/bin/qemu-ppc\" is a static binary..."
+			if ! file /usr/bin/qemu-ppc | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-ppc\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
+		"ppc64")
+			echo -n "Verifying that \"/usr/bin/qemu-ppc64\" is a static binary..."
+			if ! file /usr/bin/qemu-ppc64 | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-ppc64\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
+		"alpha")
+			echo -n "Verifying that \"/usr/bin/qemu-alpha\" is a static binary..."
+			if ! file /usr/bin/qemu-alpha | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-alpha\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
+		*)
+			echo "error: unsupported host/guest combination with host=$ARCH_HOST and guest=$ARCH_GUEST"
+			return 1
+			;;
+	esac
+	
+	echo -n "Testing dynamic binary translation..."
+	if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
+		echo " Failed."
+		echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
+		echo "hint: try running the same test manually before continuing: \"$DESTINATION/bin/busybox true\""
+		echo "hint: on a gentoo host try starting the qemu-binfmt service"
+		return 4
+	fi
+	echo " Success."
+	
+	case "$ARCH_GUEST" in
+		"aarch64")
+			echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-aarch64 "$DESTINATION"/usr/bin
+			echo " Done."
+			;;
+		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+			echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
+			echo " Done."
+			;;
+		"ppc")
+			echo -n "Copying \"/usr/bin/qemu-ppc\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-ppc "$DESTINATION"/usr/bin
+			echo " Done."
+			;;
+		"ppc64")
+			echo -n "Copying \"/usr/bin/qemu-ppc64\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-ppc64 "$DESTINATION"/usr/bin
+			echo " Done."
+			;;
+		"alpha")
+			echo -n "Copying \"/usr/bin/qemu-alpha\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-alpha "$DESTINATION"/usr/bin
+			echo " Done."
+			;;
+		*)
+			echo "error: unsupported host/guest combination with host=$ARCH_HOST and guest=$ARCH_GUEST"
+			return 1
+			;;
+	esac
 }
 
 function gentooinstall_phase_extract
@@ -379,7 +426,7 @@ function gentooinstall_phase_extract
 function gentooinstall_phase_fstab
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		
 		echo -n "Updating /etc/fstab... "
@@ -410,7 +457,7 @@ function gentooinstall_phase_fstab
 function gentooinstall_phase_kernel
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		
 		emerge -q sys-kernel/gentoo-sources
@@ -433,7 +480,7 @@ function gentooinstall_phase_kernel
 function gentooinstall_phase_locale
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		echo "en_US ISO-8859-1" >>/etc/locale.gen
 		echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
@@ -540,8 +587,9 @@ function gentooinstall_phase_partition
 function gentooinstall_phase_portage
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
+		echo "Installing portage..."
 		if [ "$PORTAGE" = "latest" ]; then
 			emerge-webrsync --quiet >/dev/null 2>/dev/null
 			emerge --sync --quiet
@@ -560,7 +608,7 @@ function gentooinstall_phase_portage
 function gentooinstall_phase_resolvconf
 {
 	if [ ! -f "$DESTINATION/etc/resolv.conf" ]; then
-		echo "Patching /etc/resolv.conf"
+		echo "Adding 8.8.8.8 and 8.8.4.4 to /etc/resolv.conf"
 		echo "nameserver 8.8.8.8" >>"$DESTINATION/etc/resolv.conf"
 		echo "nameserver 8.8.4.4" >>"$DESTINATION/etc/resolv.conf"
 	fi
@@ -573,7 +621,7 @@ function gentooinstall_phase_stage3download
 	mkdir -p "$DESTINATION"
 	if [ "$STAGE3" = "latest" ]; then
 		case "$ARCHITECTURE" in
-			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf')
+			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'ppc'|'ppc64'|'alpha')
 				case "$ARCHITECTURE" in
 					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686.txt" -O-| tail -n 1 | cut -d " " -f 1);;
@@ -584,6 +632,9 @@ function gentooinstall_phase_stage3download
 					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'ppc') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'ppc64') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'alpha') LATEST=$(wget --quiet "$MIRROR/releases/alpha/autobuilds/latest-stage3-alpha.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 				esac
 				BASENAME=$(basename "$LATEST")
 				STAGE3_FILE="$DESTINATION/$BASENAME"
@@ -597,6 +648,9 @@ function gentooinstall_phase_stage3download
 					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'ppc') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'ppc64') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'alpha') wget -q --show-progress "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 				esac
 				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS.asc"
 				case "$ARCHITECTURE" in
@@ -609,6 +663,9 @@ function gentooinstall_phase_stage3download
 					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'ppc') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'ppc64') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'alpha') wget -q --show-progress "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 				esac
 				;;
 			"aarch64")
@@ -668,7 +725,7 @@ function gentooinstall_phase_stage3hash
 function gentooinstall_phase_timezone
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		echo "$TIMEZONE" >/etc/timezone
 		emerge --config sys-libs/timezone-data
@@ -681,7 +738,7 @@ function gentooinstall_phase_timezone
 function gentooinstall_phase_update
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		
 		emerge -1u --backtrack=65536 --quiet sys-apps/portage
@@ -695,7 +752,7 @@ function gentooinstall_phase_update
 function gentooinstall_phase_password
 {
 	if $CHROOT; then
-		env-update
+		gentooinstall_quiet env-update
 		source /etc/profile
 		
 		echo "root:$PASSWORD" | chpasswd
@@ -703,6 +760,20 @@ function gentooinstall_phase_password
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase password --password "$PASSWORD"
 	fi
+}
+
+# \brief Run a command and only show output if an error occurs
+# \param $@ The command and its arguments
+function gentooinstall_quiet
+{
+	local RANDOM64=$(( $RANDOM * $RANDOM * $RANDOM * $RANDOM ))
+	"$@" >>/tmp/.quiet.$RANDOM64 2>/tmp/.quiet.$RANDOM64
+	local STATUS="$?"
+	if [ "$STATUS" -ne 0 ]; then
+		cat /tmp/.quiet.$RANDOM64
+	fi
+	rm -f /tmp/.quiet.$RANDOM64
+	return "$STATUS"
 }
 
 #------------------------------------------------------------------------------

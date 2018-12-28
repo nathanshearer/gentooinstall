@@ -6,15 +6,18 @@ Usage:
 
 Options:
   -a, --architecture x86_64
-    Which architecture to install. Default is the current architecture. Supported
-    architectures are: i486, i686, x86_64, armv4, armv5, armv6, armv6hf, armv7,
-    armv7hf, armv8, armv8hf.
+    Which guest architecture to install. Default is the host architecture.
+    Supported architectures are:
+      i486, i686, x86_64,
+      armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,
+      ppc, ppc64,
+      alpha
   -b, --block-device /tmp/none
-    Which block device to partition.
+    The block device to partition.
   --block-device-block-size 1048576
-    What block size to align the partitions to.
+    The block size used for alignment.
   --block-device-partition-type gpt
-    What type of a partition table to create: gpt or msdos.
+    The type of a partition table to create: gpt or msdos.
   --chroot false
     Used internally to chroot into the destination directory for some phases.
   -d, --destination /mnt/gentoo
@@ -46,17 +49,18 @@ Options:
       update              default    Update the world
       password            default    Set the root password
   --portage latest
-    Which portage snapshot to install, latest or a URL to a specific file to download.
+    Install the latest portage snapshot or provide a URL to a different version.
   --stage3 latest
-    Which stage3 tarball to install, latest or a URL to a specific file to download.
+    Install the latest stage3 tarball or provide a URL to a different version.
   -t, --timezone "UTC"
     Which timezone to configure.
 
 Examples:
-  gentooinstall -a x86_64 -d /mnt/gentoo -t "Canada/Mountain"
-  gentooinstall -a x86_64 -d /mnt/gentoo --portage "https://www.example.com/portage-20160320.tar.bz2"
+  gentooinstall -b /dev/sdzz -p partition,mount
+  gentooinstall -t "Canada/Mountain"
+  gentooinstall -p bootloader,fstab
 
 Version:
-  Gentoo Install 0.0.0.0
+  Gentoo Install 1.0.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0
