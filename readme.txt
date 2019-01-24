@@ -61,6 +61,6 @@ Examples:
   gentooinstall -p bootloader,fstab
 
 Version:
-  Gentoo Install 1.0.0.0
+  Gentoo Install 1.1.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0
