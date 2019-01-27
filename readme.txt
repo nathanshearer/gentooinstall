@@ -18,6 +18,10 @@ Options:
     The block size used for alignment.
   --block-device-partition-type gpt
     The type of a partition table to create: gpt or msdos.
+  --bootloader bios-lilo
+    Which bootloader to install on the boot device:
+      bios-lilo
+      uefi-refind
   --chroot false
     Used internally to chroot into the destination directory for some phases.
   -d, --destination /mnt/gentoo
@@ -61,6 +65,6 @@ Examples:
   gentooinstall -p bootloader,fstab
 
 Version:
-  Gentoo Install 1.1.0.0
+  Gentoo Install 1.2.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0
