@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="1.2.0.0"
+VERSION="1.2.1.0"
 
 function gentooinstall_architecture
 {
@@ -294,7 +294,7 @@ function gentooinstall_phase_bootloader_bios_lilo
 
 		echo "default=$KERNEL_FILENAME" >/etc/lilo.conf
 		echo "prompt" >>/etc/lilo.conf
-		echo "timeout=50" >>/etc/lilo.conf
+		echo "timeout=100" >>/etc/lilo.conf
 		echo "boot=/etc/lilo.conf.boot" >>/etc/lilo.conf
 		echo "image=$KERNEL" >>/etc/lilo.conf
 		echo "	label=$KERNEL_FILENAME" >>/etc/lilo.conf
@@ -358,7 +358,8 @@ function gentooinstall_phase_bootloader_uefi_refind
 		local REFIND_CONFIG=$(find /boot -name refind.conf)
 		mv -n "$REFIND_CONFIG" "$REFIND_CONFIG".example
 		local REFIND_OS_ICON=$(find /boot -name os_gentoo.png | sed -r -e 's/\/boot\///')
-		echo "timeout 5" >"$REFIND_CONFIG"
+		echo "timeout 10" >"$REFIND_CONFIG"
+		echo "scanfor manual" >"$REFIND_CONFIG"
 		echo "menuentry Gentoo {" >>"$REFIND_CONFIG"
 		echo "	icon $REFIND_OS_ICON" >>"$REFIND_CONFIG"
 		echo "	loader $KERNEL" >>"$REFIND_CONFIG"
@@ -705,7 +706,7 @@ function gentooinstall_phase_portage
 			wget "$PORTAGE" -O /tmp/portage.tar.bz2
 			tar xjpf /tmp/portage.tar.bz2 -C /usr
 		fi
-		mkdir /etc/portage/package.use
+		mkdir -p /etc/portage/package.use
 		touch /etc/portage/package.use/zzzz-autounmask-write
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
@@ -777,7 +778,7 @@ function gentooinstall_phase_stage3download
 				esac
 				;;
 			"aarch64")
-				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/")
+				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/" | tail -n 1)
 				STAGE3_FILE="$DESTINATION/$BASENAME"
 				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
 				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS"
