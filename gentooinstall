@@ -66,6 +66,8 @@ function gentooinstall_detect_boot_device
 {
 	gentooinstall_check_dependencies findmnt lsblk
 
+	#echo "DEVICE: $DEVICE"
+
 	if [ "$DEVICE" = "/tmp/none" ]; then
 		local BOOT_PARTITION=$(findmnt -n -P "$DESTINATION/boot" | sed -r -e 's/.*SOURCE="([^"]+)".*/\1/')
 		#echo "Found \"$BOOT_PARTITION\" mounted at \"$DESTINATION/boot\""
@@ -353,7 +355,7 @@ function gentooinstall_phase_bootloader_uefi_refind
 
 		ROOTPARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE"*2)
 
-		refind-install --usedefault "$DEVICE"1
+		refind-install --usedefault "$DEVICE"*1
 		
 		local REFIND_CONFIG=$(find /boot -name refind.conf)
 		mv -n "$REFIND_CONFIG" "$REFIND_CONFIG".example
@@ -555,7 +557,7 @@ function gentooinstall_phase_fstab
 		local SWAPUUID=$(lsblk -f -n -o UUID "$DEVICE"*3)
 		
 		mv -n /etc/fstab /etc/fstab.example
-		echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >>/etc/fstab
+		echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >/etc/fstab
 		echo "UUID=$BOOTUUID  /boot  vfat  noauto,noatime  0 0" >>/etc/fstab
 		echo "UUID=$ROOTUUID  /  ext4  noatime  0 1" >>/etc/fstab
 		echo "UUID=$SWAPUUID  none  swap  sw  0 0" >>/etc/fstab
@@ -798,23 +800,42 @@ function gentooinstall_phase_stage3download
 function gentooinstall_phase_stage3signature
 {
 	gentooinstall_check_dependencies gpg
-	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	# verify the gentoo public key is installed
-	gpg --fingerprint 0xBB572E0E2D182910 >/dev/null 2>/dev/null
+
+	gentooinstall_quiet gpg --fingerprint '13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910'
 	if [ $? -ne 0 ]; then
-		echo "The Gentoo Linux Release Engineering public key is not installed"
-		echo "Installing the Gentoo Linux Release Engineering public key..."
-		gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 0xBB572E0E2D182910
+		echo "The key: Gentoo Linux Release Engineering (Automated Weekly Release Key) is not installed"
+		echo "Installing the key: Gentoo Linux Release Engineering (Automated Weekly Release Key)..."
+		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys '13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910'
 	fi
-	# check the signature
-	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
-	gpg --verify "$STAGE3_SIGNATURE" >/dev/null 2>/dev/null
+
+	gentooinstall_quiet gpg --fingerprint 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
 	if [ $? -ne 0 ]; then
-		echo "Failed."
+		echo "The key: Gentoo ebuild repository signing key (Automated Signing Key) is not installed"
+		echo "Installing the key: Gentoo ebuild repository signing key (Automated Signing Key)..."
+		gentooinstall_quietgpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
+	fi
+
+	gentooinstall_quiet gpg --fingerprint 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
+	if [ $? -ne 0 ]; then
+		echo "The key: Gentoo repository mirrors (automated git signing key) is not installed"
+		echo "Installing the key: Gentoo repository mirrors (automated git signing key)..."
+		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
+	fi
+
+	gentooinstall_quiet gpg --fingerprint ' D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
+	if [ $? -ne 0 ]; then
+		echo "The key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key) is not installed"
+		echo "Installing the key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key)..."
+		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys ' D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
+	fi
+
+	echo "Verifying the cryptographic signature of the stage3 hashes..."
+	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
+	gentooinstall_quiet gpg --verify "$STAGE3_SIGNATURE"
+	if [ $? -ne 0 ]; then
 		echo "error: the cryptographic signature of \"$STAGE3_SIGNATURE\" could not be verified!"
 		exit 1
 	fi
-	echo "Success."
 }
 
 function gentooinstall_phase_stage3hash
