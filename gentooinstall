@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="1.2.1.0"
+VERSION="1.3.1.0"
 
 function gentooinstall_architecture
 {
@@ -49,6 +49,32 @@ function gentooinstall_architecture
 	fi
 }
 
+# \brief Convert an image to a new Gentoo installation
+function gentooinstall_assimilate
+{
+	#give the user a chance to cancel the install
+	if $WARNING; then
+		echo "Installing Gentoo at \"$DESTINATION\"..."
+		echo
+		echo "We are the Gentoo Community."
+		sleep 2
+		echo "Power your systems and surrender your chips."
+		sleep 2
+		echo "Your ideological and technological distinctiveness will be added to our own."
+		sleep 2
+		echo "You will adapt to serve us."
+		sleep 2
+		echo "Resistance is futile."
+		sleep 2
+		echo
+	fi
+	
+	gentooinstall_findrootfs "$IMAGE"
+	
+	echo "not coplete"
+	exit 1
+}
+
 # \brief Ensures dependencies are present
 # \param $@ The dependencies to check for
 function gentooinstall_check_dependencies
@@ -56,7 +82,7 @@ function gentooinstall_check_dependencies
 	for TOOL in "$@"; do
 		if ! type "$TOOL" >/dev/null 2>/dev/null; then
 			echo "$CODENAME: \"$TOOL\" is required for this application to work correctly." >&2
-			exit
+			exit 1
 		fi
 	done
 }
@@ -87,6 +113,38 @@ function gentooinstall_detect_boot_device
 	fi
 }
 
+# \brief Scan an image file or block device for a root filesystem
+# \param $1 The image or block device
+function gentooinstall_findrootfs
+{
+	echo -n "Finding the root file system... "
+	mkdir -p "$DESTINATION"
+	local STATUS=1
+	while read PARTED_LINE; do
+		ROOT_PARTITION_NUMBER=$(echo -n "$PARTED_LINE" | cut -d : -f 1)
+		ROOT_PARTITION_START=$(echo -n "$PARTED_LINE" | cut -d : -f 2 | grep -E -o '[0-9]+')
+		ROOT_PARTITION_END=$(echo -n "$PARTED_LINE" | cut -d : -f 3 | grep -E -o '[0-9]+')
+		ROOT_PARTITION_SIZE=$(echo -n "$PARTED_LINE" | cut -d : -f 4 | grep -E -o '[0-9]+')
+		ROOT_FILESYSTEM=$(echo -n "$PARTED_LINE" | cut -d : -f 5)
+		mount -o loop,ro,offset=$ROOT_PARTITION_START,sizelimit=$ROOT_PARTITION_SIZE "$1" "$DESTINATION" >/dev/null 2>/dev/null
+		if [ -e "$DESTINATION/sbin/init" ] || [ ! -e "$DESTINATION/sbin/init" -a -L "$DESTINATION/sbin/init" ]; then
+			STATUS=0
+			echo
+			echo "Root file system found:"
+			echo "  Partition Number: $ROOT_PARTITION_NUMBER"
+			echo "  Partition Start: $ROOT_PARTITION_START"
+			echo "  Partition End: $ROOT_PARTITION_END"
+			echo "  Partition Size: $ROOT_PARTITION_SIZE"
+			echo "  File system: $ROOT_FILESYSTEM"
+		fi
+		umount "$DESTINATION" >/dev/null 2>/dev/null
+	done < <(parted -s -m "$1" unit b p | tail -n +3)
+	if [ $STATUS -ne 0 ]; then
+		echo "none found."
+		return $STATUS
+	fi
+}
+
 # \brief Displays the help and exits the program
 function gentooinstall_help
 {
@@ -98,6 +156,8 @@ function gentooinstall_help
 	echo "  $CODENAME [options]"
 	echo
 	echo "Options:"
+	#echo "  --assimilate"
+	#echo "    Convert the destination into Gentoo Linux."
 	echo "  -a, --architecture x86_64"
 	echo "    Which guest architecture to install. Default is the host architecture."
 	echo "    Supported architectures are:"
@@ -164,27 +224,9 @@ function gentooinstall_help
 	exit
 }
 
-# \brief The main function of this script
-function gentooinstall_main
+# \brief Iterate through each phase
+function gentooinstall_phases
 {
-	#give the user a chance to cancel the install
-	if ! $CHROOT && $WARNING; then
-		echo "Installing Gentoo at \"$DESTINATION\"..."
-		echo
-		echo "We are the Gentoo Community."
-		sleep 2
-		echo "Power your systems and surrender your chips."
-		sleep 2
-		echo "Your ideological and technological distinctiveness will be added to our own."
-		sleep 2
-		echo "You will adapt to serve us."
-		sleep 2
-		echo "Resistance is futile."
-		sleep 2
-		echo
-	fi
-
-	#iterate through each phase
 	local CURRENT_PHASE=$(echo -n "$PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 	local REMAINING_PHASES=$(echo -n "$PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
 	while [ "$CURRENT_PHASE" != "" ]; do
@@ -219,6 +261,17 @@ function gentooinstall_main
 		CURRENT_PHASE=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/([^,]+),?.*?/\1/')
 		REMAINING_PHASES=$(echo -n "$REMAINING_PHASES" | sed -r -e 's/[^,]+,?(.*?)/\1/')
 	done
+}
+
+# \brief Display unread news items
+function gentooinstall_news
+{
+	if ! $CHROOT; then
+		NEWS_COUNT=$($CHROOTARCH chroot "$DESTINATION" eselect news count)
+		if [ "$NEWS_COUNT" != "0" ]; then
+			$CHROOTARCH chroot "$DESTINATION" eselect news list
+		fi
+	fi
 }
 
 function gentooinstall_phase_bootloader
@@ -256,7 +309,7 @@ function gentooinstall_phase_bootloader_bios_lilo
 		
 		echo "Installing the lilo bootloader..."
 
-		emerge -uq sys-boot/lilo
+		FEATURES="-pid-sandbox" emerge -uq sys-boot/lilo
 
 		KERNEL_MAKEFILE="/usr/src/linux/Makefile"
 		if [ ! -f "$KERNEL_MAKEFILE" ]; then
@@ -322,7 +375,7 @@ function gentooinstall_phase_bootloader_uefi_refind
 		
 		echo "Installing the rEFInd bootloader..."
 
-		emerge -uq sys-boot/refind
+		FEATURES="-pid-sandbox" emerge -uq sys-boot/refind
 
 		KERNEL_MAKEFILE="/usr/src/linux/Makefile"
 		if [ ! -f "$KERNEL_MAKEFILE" ]; then
@@ -576,7 +629,7 @@ function gentooinstall_phase_kernel
 		gentooinstall_quiet env-update
 		source /etc/profile
 		
-		emerge -q sys-kernel/gentoo-sources
+		FEATURES="-pid-sandbox" emerge -q sys-kernel/gentoo-sources
 		cd /usr/src/linux
 		local NAME=$(grep '^NAME' Makefile | sed -r 's/[^=]+ = //')
 		make defconfig
@@ -591,12 +644,14 @@ function gentooinstall_phase_kernel
 function gentooinstall_phase_locale
 {
 	if $CHROOT; then
+		echo -n "Configuring the locale... "
 		gentooinstall_quiet env-update
 		source /etc/profile
 		echo "en_US ISO-8859-1" >>/etc/locale.gen
 		echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
-		locale-gen
-		eselect locale set en_US.utf8
+		gentooinstall_quiet locale-gen
+		gentooinstall_quiet eselect locale set en_US.utf8
+		echo "done."
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
@@ -700,16 +755,20 @@ function gentooinstall_phase_portage
 	if $CHROOT; then
 		gentooinstall_quiet env-update
 		source /etc/profile
-		echo "Installing portage..."
+		echo -n "Installing portage... "
 		if [ "$PORTAGE" = "latest" ]; then
-			emerge-webrsync --quiet >/dev/null 2>/dev/null
-			emerge --sync --quiet
+			gentooinstall_quiet emerge-webrsync || return
+			gentooinstall_quiet emerge --sync || return
 		else
-			wget "$PORTAGE" -O /tmp/portage.tar.bz2
-			tar xjpf /tmp/portage.tar.bz2 -C /usr
+			wget "$PORTAGE" -O /tmp/portage.tar.bz2 || return
+			tar xjpf /tmp/portage.tar.bz2 -C /usr || return
 		fi
+		mkdir -p /etc/portage/package.keywords
+		touch /etc/portage/package.keywords/zzzz-autounmask-write
 		mkdir -p /etc/portage/package.use
 		touch /etc/portage/package.use/zzzz-autounmask-write
+		
+		echo "done."
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
@@ -812,7 +871,7 @@ function gentooinstall_phase_stage3signature
 	if [ $? -ne 0 ]; then
 		echo "The key: Gentoo ebuild repository signing key (Automated Signing Key) is not installed"
 		echo "Installing the key: Gentoo ebuild repository signing key (Automated Signing Key)..."
-		gentooinstall_quietgpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
+		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
 	fi
 
 	gentooinstall_quiet gpg --fingerprint 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
@@ -822,19 +881,22 @@ function gentooinstall_phase_stage3signature
 		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
 	fi
 
-	gentooinstall_quiet gpg --fingerprint ' D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
+	gentooinstall_quiet gpg --fingerprint 'D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
 	if [ $? -ne 0 ]; then
 		echo "The key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key) is not installed"
 		echo "Installing the key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key)..."
-		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys ' D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
+		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
 	fi
 
-	echo "Verifying the cryptographic signature of the stage3 hashes..."
+	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
 	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
+	gentooinstall_quiet gpg --refresh-keys
 	gentooinstall_quiet gpg --verify "$STAGE3_SIGNATURE"
 	if [ $? -ne 0 ]; then
 		echo "error: the cryptographic signature of \"$STAGE3_SIGNATURE\" could not be verified!"
 		exit 1
+	else
+		echo "Success."
 	fi
 }
 
@@ -855,10 +917,12 @@ function gentooinstall_phase_stage3hash
 function gentooinstall_phase_timezone
 {
 	if $CHROOT; then
+		echo -n "Configuring the timezone... "
 		gentooinstall_quiet env-update
 		source /etc/profile
 		echo "$TIMEZONE" >/etc/timezone
-		emerge --config sys-libs/timezone-data
+		gentooinstall_quiet emerge --config sys-libs/timezone-data
+		echo "done."
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
@@ -868,11 +932,12 @@ function gentooinstall_phase_timezone
 function gentooinstall_phase_update
 {
 	if $CHROOT; then
+		echo -n "Updating world packages... "
 		gentooinstall_quiet env-update
 		source /etc/profile
-		
-		emerge -1u --backtrack=65536 --quiet sys-apps/portage
-		emerge -uDN --with-bdeps=y --backtrack=65536 --quiet world
+		FEATURES="-pid-sandbox" gentooinstall_quiet emerge -1u --backtrack=65536 sys-apps/portage || return
+		FEATURES="-pid-sandbox" gentooinstall_quiet emerge -uDN --with-bdeps=y --backtrack=65536 world || return
+		echo "done."
 	else
 		cp -f "$THIS" "$DESTINATION/tmp"
 		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
@@ -910,7 +975,8 @@ function gentooinstall_quiet
 # default configuration
 
 ARCHITECTURE=$(gentooinstall_architecture)
-BOOTLOADER=bios-lilo
+ASSIMILATE=false
+BOOTLOADER=uefi-refind
 CHROOT=false
 CHROOTARCH=""
 DEBUG=false
@@ -919,6 +985,7 @@ DEVICE=/tmp/none
 DEVICE_BLOCK_SIZE=$((1024*1024))
 DEVICE_PARTITION_TYPE=gpt
 EMAIL=""
+IMAGE=""
 KERNEL="/boot/kernel"
 MIRROR="http://distfiles.gentoo.org"
 NICE=0
@@ -943,6 +1010,11 @@ fi
 THIS="$0"
 while [ $# -ne 0 ]; do
 	case "$1" in
+		#"--assimilate")
+		#	ASSIMILATE=true
+		#	IMAGE="$2"
+		#	shift 2
+		#	;;
 		"-a"|"--architecture")
 			ARCHITECTURE="$2"
 			shift 2
@@ -1020,4 +1092,9 @@ fi
 #------------------------------------------------------------------------------
 # begin execution
 
-gentooinstall_main
+if $ASSIMILATE; then
+	gentooinstall_assimilate
+else
+	gentooinstall_phases
+fi
+gentooinstall_news
