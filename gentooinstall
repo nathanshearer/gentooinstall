@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="1.3.1.0"
+VERSION="2.0.0.0"
 
 function gentooinstall_architecture
 {
@@ -54,7 +54,7 @@ function gentooinstall_assimilate
 {
 	#give the user a chance to cancel the install
 	if $WARNING; then
-		echo "Installing Gentoo at \"$DESTINATION\"..."
+		echo "Installing Gentoo at \"$DESTINATION_ROOT\"..."
 		echo
 		echo "We are the Gentoo Community."
 		sleep 2
@@ -69,9 +69,7 @@ function gentooinstall_assimilate
 		echo
 	fi
 	
-	gentooinstall_findrootfs "$IMAGE"
-	
-	echo "not coplete"
+	echo "not complete"
 	exit 1
 }
 
@@ -87,61 +85,119 @@ function gentooinstall_check_dependencies
 	done
 }
 
-# \brief Attempt to detect the boot device
 function gentooinstall_detect_boot_device
 {
 	gentooinstall_check_dependencies findmnt lsblk
+	
+	if [ "$DESTINATION_BOOT_DEVICE" = "" ]; then
+		DESTINATION_BOOT_DEVICE=$(findmnt -n -o SOURCE "$DESTINATION_ROOT/boot")
+		if [ ! -b "$DESTINATION_BOOT_DEVICE" ]; then
+			for PARTITION in $(lsblk -f -n -o PATH "$DESTINATION" | tail -n +2); do
+				local FSTYPE=$(lsblk -f -n -o FSTYPE "$PARTITION")
+				if [ "$FSTYPE" = "vfat" ]; then
+					DESTINATION_BOOT_DEVICE="$PARTITION"
+				fi
+			done
+		fi
+		if [ ! -b "$DESTINATION_BOOT_DEVICE" ]; then
+			echo "error: detect_boot_device: Unable to detect the boot device."
+			return 1
+		fi
+		echo "Detected Boot Device: \"$DESTINATION_BOOT_DEVICE\""
+	fi
+}
 
-	#echo "DEVICE: $DEVICE"
-
-	if [ "$DEVICE" = "/tmp/none" ]; then
-		local BOOT_PARTITION=$(findmnt -n -P "$DESTINATION/boot" | sed -r -e 's/.*SOURCE="([^"]+)".*/\1/')
-		#echo "Found \"$BOOT_PARTITION\" mounted at \"$DESTINATION/boot\""
-		local BOOT_PARTITION_BASENAME=$(basename "$BOOT_PARTITION")
-		local BOOT_PARTITION_DIRNAME=$(dirname "$BOOT_PARTITION")
-		local DEVICE_DETECTED_BASENAME=$(lsblk -n -P -s | grep -A 1 "$BOOT_PARTITION_BASENAME" | tail -n 1 | sed -r -e 's/.*NAME="([^"]+)".*/\1/')
-		DEVICE_DETECTED="$BOOT_PARTITION_DIRNAME/$DEVICE_DETECTED_BASENAME"
-		#echo "Detected boot device: $DEVICE_DETECTED"
-		if [ -b "$DEVICE_DETECTED" ]; then
-			DEVICE="$DEVICE_DETECTED"
-		else
-			echo "Found \"$BOOT_PARTITION\" mounted at \"$DESTINATION/boot\""
-			echo "Detected boot device: $DEVICE_DETECTED"
-			echo "error: \"$DEVICE_DETECTED\" is not a block device"
+function gentooinstall_detect_boot_device_parent
+{
+	gentooinstall_check_dependencies findmnt lsblk
+	
+	if [ "$DESTINATION_BOOT_DEVICE_PARENT" = "" ]; then
+		local DEVICE_BOOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT/boot")
+		DESTINATION_BOOT_DEVICE_PARENT="/dev/$(lsblk -s -l -n -o NAME "$DEVICE_BOOT" | tail -n 1)"
+		if [ ! -b "$DESTINATION_BOOT_DEVICE_PARENT" ]; then
+			echo "error: detect_boot_device: Unable to detect the boot device. \"$DESTINATION_BOOT_DEVICE\" is not a block device."
 			return 1
 		fi
 	fi
 }
 
-# \brief Scan an image file or block device for a root filesystem
-# \param $1 The image or block device
-function gentooinstall_findrootfs
+function gentooinstall_detect_boot_uuid
 {
-	echo -n "Finding the root file system... "
-	mkdir -p "$DESTINATION"
-	local STATUS=1
-	while read PARTED_LINE; do
-		ROOT_PARTITION_NUMBER=$(echo -n "$PARTED_LINE" | cut -d : -f 1)
-		ROOT_PARTITION_START=$(echo -n "$PARTED_LINE" | cut -d : -f 2 | grep -E -o '[0-9]+')
-		ROOT_PARTITION_END=$(echo -n "$PARTED_LINE" | cut -d : -f 3 | grep -E -o '[0-9]+')
-		ROOT_PARTITION_SIZE=$(echo -n "$PARTED_LINE" | cut -d : -f 4 | grep -E -o '[0-9]+')
-		ROOT_FILESYSTEM=$(echo -n "$PARTED_LINE" | cut -d : -f 5)
-		mount -o loop,ro,offset=$ROOT_PARTITION_START,sizelimit=$ROOT_PARTITION_SIZE "$1" "$DESTINATION" >/dev/null 2>/dev/null
-		if [ -e "$DESTINATION/sbin/init" ] || [ ! -e "$DESTINATION/sbin/init" -a -L "$DESTINATION/sbin/init" ]; then
-			STATUS=0
-			echo
-			echo "Root file system found:"
-			echo "  Partition Number: $ROOT_PARTITION_NUMBER"
-			echo "  Partition Start: $ROOT_PARTITION_START"
-			echo "  Partition End: $ROOT_PARTITION_END"
-			echo "  Partition Size: $ROOT_PARTITION_SIZE"
-			echo "  File system: $ROOT_FILESYSTEM"
+	gentooinstall_check_dependencies findmnt lsblk
+	
+	if [ "$DESTINATION_BOOT_UUID" = "" ]; then
+		local DEVICE_BOOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT/boot")
+		DESTINATION_BOOT_UUID=$(lsblk -f -n -o UUID "$DEVICE_BOOT")
+		findfs "UUID=$DESTINATION_BOOT_UUID" >/dev/null 2>/dev/null
+		if [ $? -ne 0 ]; then
+			echo "error: detect_boot_uuid: Unable to detect the UUID of the filesystem mounted at \"$DESTINATION_ROOT/boot\""
+			return 1
 		fi
-		umount "$DESTINATION" >/dev/null 2>/dev/null
-	done < <(parted -s -m "$1" unit b p | tail -n +3)
-	if [ $STATUS -ne 0 ]; then
-		echo "none found."
-		return $STATUS
+	fi
+}
+
+function gentooinstall_detect_root_device
+{
+	if [ "$DESTINATION_ROOT_DEVICE" = "" -a -b "$DESTINATION" ]; then
+		for PARTITION in $(lsblk -f -n -o PATH "$DESTINATION" | tail -n +2); do
+			local FSTYPE=$(lsblk -f -n -o FSTYPE "$PARTITION")
+			if [ "$FSTYPE" = "swap" ]; then continue; fi
+			if [ "$FSTYPE" = "vfat" ]; then continue; fi
+			DESTINATION_ROOT_DEVICE="$PARTITION"
+		done
+		if [ ! -b "$DESTINATION_ROOT_DEVICE" ]; then
+			echo "error: detect_root_device: Unable to detect the root device. \"$DESTINATION_ROOT_DEVICE\" is not a block device."
+			return 1
+		fi
+		echo "Detected Root Device: \"$DESTINATION_ROOT_DEVICE\""
+	fi
+}
+
+function gentooinstall_detect_root_partuuid
+{
+	gentooinstall_check_dependencies findmnt lsblk
+	
+	if [ "$DESTINATION_ROOT_PARTUUID" = "" ]; then
+		local DEVICE_ROOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT")
+		DESTINATION_ROOT_PARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE_ROOT")
+		findfs "PARTUUID=$DESTINATION_ROOT_PARTUUID" >/dev/null 2>/dev/null
+		if [ $? -ne 0 ]; then
+			echo "error: detect_root_partuuid: Unable to detect the PARTUUID of the filesystem mounted at \"$DESTINATION_ROOT\""
+			return 1
+		fi
+		echo "Detected Root PARTUUID: \"$DESTINATION_ROOT_PARTUUID\""
+	fi
+}
+
+function gentooinstall_detect_root_uuid
+{
+	gentooinstall_check_dependencies findmnt lsblk
+	
+	if [ "$DESTINATION_ROOT_UUID" = "" ]; then
+		local DEVICE_ROOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT")
+		DESTINATION_ROOT_UUID=$(lsblk -f -n -o UUID "$DEVICE_ROOT")
+		findfs "UUID=$DESTINATION_ROOT_UUID" >/dev/null 2>/dev/null
+		if [ $? -ne 0 ]; then
+			echo "error: detect_root_uuid: Unable to detect the UUID of the filesystem mounted at \"$DESTINATION_ROOT\""
+			return 1
+		fi
+	fi
+}
+
+function gentooinstall_detect_swap_uuid
+{
+	gentooinstall_check_dependencies findfs findmnt lsblk parted
+	
+	if [ "$DESTINATION_SWAP_UUID" = "" ]; then
+		local DEVICE_ROOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT")
+		local DEVICE_ROOT_PARENT=$(lsblk -s -l -n -o NAME "$DEVICE_ROOT" | tail -n 1)
+		local SWAP_INDEX=$(parted -s -m "/dev/$DEVICE_ROOT_PARENT" p | grep linux-swap | cut -d : -f 1)
+		DESTINATION_SWAP_UUID=$(lsblk -f -n -o UUID "/dev/$DEVICE_ROOT_PARENT"*$SWAP_INDEX)
+		findfs "UUID=$DESTINATION_SWAP_UUID" >/dev/null 2>/dev/null
+		if [ $? -ne 0 ]; then
+			echo "error: detect_swap_uuid: Unable to detect the UUID of the swap partition"
+			return 1
+		fi
 	fi
 }
 
@@ -165,46 +221,52 @@ function gentooinstall_help
 	echo "      armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,"
 	echo "      ppc, ppc64,"
 	echo "      alpha"
-	echo "  -b, --block-device /tmp/none"
-	echo "    The block device to partition."
-	echo "  --block-device-block-size $((1024*1024))"
-	echo "    The block size used for alignment."
-	echo "  --block-device-partition-type gpt"
-	echo "    The type of a partition table to create: gpt or msdos."
-	echo "  --bootloader bios-lilo"
+	echo "  --bootloader uefi-refind"
 	echo "    Which bootloader to install on the boot device:"
 	echo "      bios-lilo"
-	echo "      uefi-refind"
-	echo "  --chroot false"
-	echo "    Used internally to chroot into the destination directory for some phases."
+	echo "      uefi-refind  default"
 	echo "  -d, --destination /mnt/gentoo"
-	echo "    Where to install."
+	echo "    Install into this location. If a directory is provided, then install into"
+	echo "    that directory. If an empty block device is provided, then it will be"
+	echo "    partitioned and mounted. Default mountpoint is \"/mnt/gentoo\"."
+	echo "  --destination-root-partuuid 00000000-0000-0000-0000-000000000000"
+	echo "    Specify the destination root partuuid instead of automatically detecting it."
 	echo "  -h, --help"
 	echo "    Display this help message and exit."
+	echo "  --no-news"
+	echo "    Do not display unread news items."
 	echo "  --no-warning"
 	echo "    Do not display or wait for the 10-second pre-install warning."
+	echo "  -m, --mountpoint /mnt/gentoo"
+	echo "    Where to mount the destination block devices. Default is \"/mnt/gentoo\""
 	echo "  --mirror http://distfiles.gentoo.org"
 	echo "    Download the stage3 files from a different mirror."
+	echo "  --password password"
+	echo "    Set the root password to \"password\"."
+	echo "  --partition-type gpt"
+	echo "    The type of a partition table to create: gpt or msdos."
+	echo "  --partition-block-size $((1024*1024))"
+	echo "    The block size used for partition alignment."
 	echo "  -p, --phase phase1,phase2,..."
 	echo "    A comma-separated list of which phases to run:"
-	echo "      partition"
-	echo "      mount"
-	echo "      stage3download      default    Download the stage 3 tarball"
-	echo "      stage3signature     default    Verify the cryptographic signature"
-	echo "      stage3hash          default    Verify the hash"
-	echo "      extract             default    Extract the stage 3 tarball"
-	echo "      dynamictranslation  default    Enable dynamic translation if required"
-	echo "      deletestage3        default    Delete the stage 3 tarball"
-	echo "      resolvconf          default    Add default nameservers"
-	echo "      mountchroot         default    Mount the chroot environment"
-	echo "      portage             default    Install Portage"
-	echo "      timezone            default    Set the timezone"
-	echo "      locale              default    Set the locale"
-	echo "      kernel                         Install and compile the kernel"
-	echo "      bootloader                     Configure and install lilo"
-	echo "      fstab                          Add boot, root, and swap entries"
-	echo "      update              default    Update the world"
-	echo "      password            default    Set the root password"
+	echo "      partition           conditional  Partition an empty block device"
+	echo "      mount               conditional  Mount the destination block device"
+	echo "      stage3download      default      Download the stage 3 tarball"
+	echo "      stage3signature     default      Verify the cryptographic signature"
+	echo "      stage3hash          default      Verify the hash"
+	echo "      stage3extract       default      Extract the stage 3 tarball"
+	echo "      stage3delete        default      Delete the stage 3 tarball"
+	echo "      dynamictranslation  default      Enable dynamic translation if required"
+	echo "      resolvconf          default      Add default nameservers"
+	echo "      procsysdev          automatic    Mount proc, sys, and dev"
+	echo "      portage             default      Install Portage"
+	echo "      timezone            default      Set the timezone"
+	echo "      locale              default      Set the locale"
+	echo "      kernel                           Install and compile the kernel"
+	echo "      fstab                            Add boot, root, and swap entries"
+	echo "      bootloader                       Configure and install a bootloader"
+	echo "      update              default      Update the world"
+	echo "      password            default      Set the root password"
 	echo "  --portage latest"
 	echo "    Install the latest portage snapshot or provide a URL to a different version."
 	echo "  --stage3 latest"
@@ -213,9 +275,8 @@ function gentooinstall_help
 	echo "    Which timezone to configure."
 	echo
 	echo "Examples:"
-	echo "  $CODENAME -b /dev/sdzz -p partition,mount"
-	echo "  $CODENAME -t \"Canada/Mountain\""
-	echo "  $CODENAME -p bootloader,fstab"
+	echo "  $CODENAME -d /dev/sdzz -t \"Canada/Mountain\""
+	echo "  $CODENAME -p kernel,fstab,bootloader"
 	echo
 	echo "Version:"
 	echo "  $NAME $VERSION"
@@ -236,17 +297,17 @@ function gentooinstall_phases
 			"stage3download")     gentooinstall_phase_stage3download;;
 			"stage3signature")    gentooinstall_phase_stage3signature;;
 			"stage3hash")         gentooinstall_phase_stage3hash;;
-			"extract")            gentooinstall_phase_extract;;
+			"stage3extract")      gentooinstall_phase_stage3extract;;
+			"stage3delete")       gentooinstall_phase_stage3delete;;
 			"dynamictranslation") gentooinstall_phase_dynamictranslation;;
-			"deletestage3")       gentooinstall_phase_deletestage3;;
 			"resolvconf")         gentooinstall_phase_resolvconf;;
-			"mountchroot")        gentooinstall_phase_mountchroot;;
+			"procsysdev")         gentooinstall_phase_procsysdev;;
 			"portage")            gentooinstall_phase_portage;;
 			"timezone")           gentooinstall_phase_timezone;;
 			"locale")             gentooinstall_phase_locale;;
 			"kernel")             gentooinstall_phase_kernel;;
-			"bootloader")         gentooinstall_phase_bootloader;;
 			"fstab")              gentooinstall_phase_fstab;;
+			"bootloader")         gentooinstall_phase_bootloader;;
 			"update")             gentooinstall_phase_update;;
 			"password")           gentooinstall_phase_password;;
 			*)
@@ -266,10 +327,18 @@ function gentooinstall_phases
 # \brief Display unread news items
 function gentooinstall_news
 {
-	if ! $CHROOT; then
-		NEWS_COUNT=$($CHROOTARCH chroot "$DESTINATION" eselect news count)
+	$NEWS || return 0
+
+	if [ -e "$DESTINATION_ROOT/usr/bin/eselect" ]; then
+		gentooinstall_phase_procsysdev
+		local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+		if [ "$DESTINATION" = '/' ]; then
+			PREFIX=""
+		fi
+
+		NEWS_COUNT=$($PREFIX eselect news count)
 		if [ "$NEWS_COUNT" != "0" ]; then
-			$CHROOTARCH chroot "$DESTINATION" eselect news list
+			$PREFIX eselect news list
 		fi
 	fi
 }
@@ -278,16 +347,10 @@ function gentooinstall_phase_bootloader
 {
 	case "$BOOTLOADER" in
 		"bios-lilo")
-			gentooinstall_phase_bootloader_bios_lilo
-			if [ $? -ne 0 ]; then
-				return 1
-			fi
+			gentooinstall_phase_bootloader_bios_lilo || return
 			;;
 		"uefi-refind")
-			gentooinstall_phase_bootloader_uefi_refind
-			if [ $? -ne 0 ]; then
-				return 1
-			fi
+			gentooinstall_phase_bootloader_uefi_refind || return
 			;;
 		*)
 			echo "error: unsupported bootloader \"$BOOTLOADER\""
@@ -298,137 +361,129 @@ function gentooinstall_phase_bootloader
 
 function gentooinstall_phase_bootloader_bios_lilo
 {
-	gentooinstall_detect_boot_device
-	if [ $? -ne 0 ]; then
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo "Installing the lilo bootloader..."
+
+	gentooinstall_detect_boot_device_parent || return
+	gentooinstall_detect_root_partuuid || return
+
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uq sys-boot/lilo
+
+	KERNEL_MAKEFILE="$DESTINATION_ROOT/usr/src/linux/Makefile"
+	if [ ! -f "$KERNEL_MAKEFILE" ]; then
+		echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+		return 1
+	fi
+	KERNEL_VERSION=$(grep ^VERSION "$KERNEL_MAKEFILE" | sed -r 's/VERSION *= *//')
+	KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL "$KERNEL_MAKEFILE" | sed -r 's/PATCHLEVEL *= *//')
+	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
+	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
+
+	KERNEL="$DESTINATION_ROOT/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
+	if [ ! -f "$KERNEL" ]; then
+		echo "error: A kernel was not found at \"$KERNEL\""
 		return 1
 	fi
 
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		
-		echo "Installing the lilo bootloader..."
-
-		FEATURES="-pid-sandbox" emerge -uq sys-boot/lilo
-
-		KERNEL_MAKEFILE="/usr/src/linux/Makefile"
-		if [ ! -f "$KERNEL_MAKEFILE" ]; then
-			echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
-			return 1
-		fi
-		KERNEL_VERSION=$(grep ^VERSION /usr/src/linux/Makefile | sed -r 's/VERSION *= *//')
-		KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL /usr/src/linux/Makefile | sed -r 's/PATCHLEVEL *= *//')
-		KERNEL_SUBLEVEL=$(grep ^SUBLEVEL /usr/src/linux/Makefile | sed -r 's/SUBLEVEL *= *//')
-		KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION /usr/src/linux/Makefile | sed -r 's/EXTRAVERSION *= *-*//')
-
-		KERNEL="/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
-		if [ ! -f "$KERNEL" ]; then
-			echo "error: A kernel was not found at \"$KERNEL\""
-			return 1
-		fi
-
-		KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
-		if [ "$KERNEL_PATCHLEVEL" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
-		fi
-		if [ "$KERNEL_SUBLEVEL" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
-		fi
-		if [ "$KERNEL_EXTRAVERSION" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
-		fi
-		cp -f "$KERNEL" "/boot/$KERNEL_FILENAME"
-		KERNEL="/boot/$KERNEL_FILENAME"
-
-		ROOTPARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE"*2)
-
-		# some hard drives use characters in their id that causes lilo to break when using boot=/dev/disk/by-id
-		# this symlink is a workaround for that problem
-		BOOTBYID=$(find -L /dev/disk/by-id -samefile "$DEVICE" | head -n 1)
-		ln -f -s "$BOOTBYID" /etc/lilo.conf.boot
-
-		echo "default=$KERNEL_FILENAME" >/etc/lilo.conf
-		echo "prompt" >>/etc/lilo.conf
-		echo "timeout=100" >>/etc/lilo.conf
-		echo "boot=/etc/lilo.conf.boot" >>/etc/lilo.conf
-		echo "image=$KERNEL" >>/etc/lilo.conf
-		echo "	label=$KERNEL_FILENAME" >>/etc/lilo.conf
-		echo "	append=\"root=PARTUUID=$ROOTPARTUUID rootwait\"" >>/etc/lilo.conf
-
-		gentooinstall_quiet lilo
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase bootloader --bootloader "$BOOTLOADER" -b "$DEVICE"
+	KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
+	if [ "$KERNEL_PATCHLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
 	fi
+	if [ "$KERNEL_SUBLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
+	fi
+	if [ "$KERNEL_EXTRAVERSION" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
+	fi
+	cp -f "$KERNEL" "$DESTINATION_ROOT/boot/$KERNEL_FILENAME"
+	KERNEL="$KERNEL_FILENAME"
+
+	# some hard drives use characters in their id that causes lilo to break when using boot=/dev/disk/by-id
+	# this symlink is a workaround for that problem
+	BOOTBYID=$(find -L "$DESTINATION_ROOT/dev/disk/by-id" -samefile "$DESTINATION_BOOT_DEVICE_PARENT" | head -n 1)
+	if [ ! -b "$BOOTBYID" ]; then
+		echo "error: the disk ID for \"$DESTINATION_BOOT_DEVICE_PARENT\" could not be identified."
+		return 2
+	fi
+
+	echo "default=Gentoo" >"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "prompt" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "timeout=100" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "boot=/etc/lilo.conf.boot" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "image=/boot/$KERNEL" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "	label=Gentoo" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "	append=\"root=PARTUUID=$DESTINATION_ROOT_PARTUUID rootwait\"" >>"$DESTINATION_ROOT/etc/lilo.conf"
+
+	gentooinstall_quiet $PREFIX lilo -b "$DESTINATION_BOOT_DEVICE_PARENT"
 }
 
 function gentooinstall_phase_bootloader_uefi_refind
 {
-	gentooinstall_detect_boot_device
-	if [ $? -ne 0 ]; then
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo "Installing the rEFInd bootloader..."
+
+	gentooinstall_detect_boot_device || return
+	gentooinstall_detect_root_partuuid || return
+
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uq sys-boot/refind
+
+	KERNEL_MAKEFILE="$DESTINATION_ROOT/usr/src/linux/Makefile"
+	if [ ! -f "$KERNEL_MAKEFILE" ]; then
+		echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+		return 1
+	fi
+	KERNEL_VERSION=$(grep ^VERSION "$KERNEL_MAKEFILE" | sed -r 's/VERSION *= *//')
+	KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL "$KERNEL_MAKEFILE" | sed -r 's/PATCHLEVEL *= *//')
+	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
+	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
+
+	KERNEL="$DESTINATION_ROOT/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
+	if [ ! -f "$KERNEL" ]; then
+		echo "error: A kernel was not found at \"$KERNEL\""
 		return 1
 	fi
 
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		
-		echo "Installing the rEFInd bootloader..."
-
-		FEATURES="-pid-sandbox" emerge -uq sys-boot/refind
-
-		KERNEL_MAKEFILE="/usr/src/linux/Makefile"
-		if [ ! -f "$KERNEL_MAKEFILE" ]; then
-			echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
-			return 1
-		fi
-		KERNEL_VERSION=$(grep ^VERSION /usr/src/linux/Makefile | sed -r 's/VERSION *= *//')
-		KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL /usr/src/linux/Makefile | sed -r 's/PATCHLEVEL *= *//')
-		KERNEL_SUBLEVEL=$(grep ^SUBLEVEL /usr/src/linux/Makefile | sed -r 's/SUBLEVEL *= *//')
-		KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION /usr/src/linux/Makefile | sed -r 's/EXTRAVERSION *= *-*//')
-
-		KERNEL="/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
-		if [ ! -f "$KERNEL" ]; then
-			echo "error: A kernel was not found at \"$KERNEL\""
-			return 1
-		fi
-
-		KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
-		if [ "$KERNEL_PATCHLEVEL" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
-		fi
-		if [ "$KERNEL_SUBLEVEL" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
-		fi
-		if [ "$KERNEL_EXTRAVERSION" != "" ]; then
-			KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
-		fi
-		cp -f "$KERNEL" "/boot/$KERNEL_FILENAME.efi"
-		KERNEL="$KERNEL_FILENAME.efi"
-
-		ROOTPARTUUID=$(lsblk -f -n -o PARTUUID "$DEVICE"*2)
-
-		refind-install --usedefault "$DEVICE"*1
-		
-		local REFIND_CONFIG=$(find /boot -name refind.conf)
-		mv -n "$REFIND_CONFIG" "$REFIND_CONFIG".example
-		local REFIND_OS_ICON=$(find /boot -name os_gentoo.png | sed -r -e 's/\/boot\///')
-		echo "timeout 10" >"$REFIND_CONFIG"
-		echo "scanfor manual" >"$REFIND_CONFIG"
-		echo "menuentry Gentoo {" >>"$REFIND_CONFIG"
-		echo "	icon $REFIND_OS_ICON" >>"$REFIND_CONFIG"
-		echo "	loader $KERNEL" >>"$REFIND_CONFIG"
-		echo "	options \"ro root=PARTUUID=$ROOTPARTUUID rootwait\"" >>"$REFIND_CONFIG"
-		echo "}" >>"$REFIND_CONFIG"
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase bootloader --bootloader "$BOOTLOADER" -b "$DEVICE"
+	KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
+	if [ "$KERNEL_PATCHLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
 	fi
+	if [ "$KERNEL_SUBLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
+	fi
+	if [ "$KERNEL_EXTRAVERSION" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
+	fi
+	cp -f "$KERNEL" "$DESTINATION_ROOT/boot/$KERNEL_FILENAME"
+
+	$PREFIX refind-install --usedefault "$DESTINATION_BOOT_DEVICE"
+	umount "$DESTINATION_ROOT/tmp/refind_install" >/dev/null 2>/dev/null
+	rmdir "$DESTINATION_ROOT/tmp/refind_install"
+
+	local REFIND_CONFIG=$(find "$DESTINATION_ROOT/boot" -name refind.conf)
+	mv -n "$REFIND_CONFIG" "$REFIND_CONFIG".example
+	local REFIND_OS_ICON=$(find "$DESTINATION_ROOT/boot" -name os_gentoo.png -printf '%P\n')
+	echo "timeout 10" >"$REFIND_CONFIG"
+	echo "scanfor manual" >"$REFIND_CONFIG"
+	echo "menuentry Gentoo {" >>"$REFIND_CONFIG"
+	echo "	icon $REFIND_OS_ICON" >>"$REFIND_CONFIG"
+	echo "	loader $KERNEL_FILENAME" >>"$REFIND_CONFIG"
+	echo "	options \"ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID rootwait\"" >>"$REFIND_CONFIG"
+	echo "}" >>"$REFIND_CONFIG"
 }
 
-function gentooinstall_phase_deletestage3
+function gentooinstall_phase_stage3delete
 {
-	rm "$DESTINATION"/stage3-*.tar.*
+	rm "$DESTINATION_ROOT"/stage3-*.tar.*
 }
 
 function gentooinstall_phase_dynamictranslation
@@ -542,10 +597,10 @@ function gentooinstall_phase_dynamictranslation
 	esac
 	
 	echo -n "Testing dynamic binary translation..."
-	if ! "$DESTINATION"/bin/busybox true >/dev/null 2>/dev/null; then
+	if ! "$DESTINATION_ROOT"/bin/busybox true >/dev/null 2>/dev/null; then
 		echo " Failed."
-		echo "error: dynamic translation test failed for \"$DESTINATION//bin/busybox test\""
-		echo "hint: try running the same test manually before continuing: \"$DESTINATION/bin/busybox true\""
+		echo "error: dynamic translation test failed for \"$DESTINATION_ROOT/bin/busybox test\""
+		echo "hint: try running the same test manually before continuing: \"$DESTINATION_ROOT/bin/busybox true\""
 		echo "hint: on a gentoo host try starting the qemu-binfmt service"
 		return 4
 	fi
@@ -554,27 +609,27 @@ function gentooinstall_phase_dynamictranslation
 	case "$ARCH_GUEST" in
 		"aarch64")
 			echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-aarch64 "$DESTINATION"/usr/bin
+			cp /usr/bin/qemu-aarch64 "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
 			echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-arm "$DESTINATION"/usr/bin
+			cp /usr/bin/qemu-arm "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		"ppc")
 			echo -n "Copying \"/usr/bin/qemu-ppc\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-ppc "$DESTINATION"/usr/bin
+			cp /usr/bin/qemu-ppc "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		"ppc64")
 			echo -n "Copying \"/usr/bin/qemu-ppc64\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-ppc64 "$DESTINATION"/usr/bin
+			cp /usr/bin/qemu-ppc64 "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		"alpha")
 			echo -n "Copying \"/usr/bin/qemu-alpha\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-alpha "$DESTINATION"/usr/bin
+			cp /usr/bin/qemu-alpha "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		*)
@@ -584,111 +639,97 @@ function gentooinstall_phase_dynamictranslation
 	esac
 }
 
-function gentooinstall_phase_extract
-{
-	local STAGE3=$(ls "$DESTINATION"/stage3-*.tar.* | head -n 1)
-	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION\"... "
-	tar xpf "$STAGE3" -C "$DESTINATION" --xattrs
-	echo "Done."
-}
-
 function gentooinstall_phase_fstab
 {
-	gentooinstall_detect_boot_device
-	if [ $? -ne 0 ]; then
-		return 1
-	fi
+	echo -n "Updating /etc/fstab... "
 	
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		
-		echo -n "Updating /etc/fstab... "
-		
-		local BOOTUUID=$(lsblk -f -n -o UUID "$DEVICE"*1)
-		local ROOTUUID=$(lsblk -f -n -o UUID "$DEVICE"*2)
-		local SWAPUUID=$(lsblk -f -n -o UUID "$DEVICE"*3)
-		
-		mv -n /etc/fstab /etc/fstab.example
-		echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >/etc/fstab
-		echo "UUID=$BOOTUUID  /boot  vfat  noauto,noatime  0 0" >>/etc/fstab
-		echo "UUID=$ROOTUUID  /  ext4  noatime  0 1" >>/etc/fstab
-		echo "UUID=$SWAPUUID  none  swap  sw  0 0" >>/etc/fstab
-		
-		echo "done."
-		
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase fstab -b "$DEVICE"
-	fi
+	gentooinstall_detect_boot_uuid || return
+	gentooinstall_detect_root_uuid || return
+	gentooinstall_detect_swap_uuid || return
+	
+	mv -n "$DESTINATION_ROOT/etc/fstab" "$DESTINATION_ROOT/etc/fstab.example"
+	echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >"$DESTINATION_ROOT/etc/fstab"
+	echo "UUID=$DESTINATION_BOOT_UUID  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
+	echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	
+	echo "done."
 }
 
 function gentooinstall_phase_kernel
 {
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		
-		FEATURES="-pid-sandbox" emerge -q sys-kernel/gentoo-sources
-		cd /usr/src/linux
-		local NAME=$(grep '^NAME' Makefile | sed -r 's/[^=]+ = //')
-		make defconfig
-		make -j$THREADS
-		make modules_install
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase kernel
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
 	fi
+
+	FEATURES="-pid-sandbox" $PREFIX emerge -uq app-arch/cpio
+	FEATURES="-pid-sandbox" $PREFIX emerge -uq sys-kernel/gentoo-sources
+	if [ ! -f .config ]; then
+		$PREFIX make -C "/usr/src/linux" defconfig
+	fi
+	$PREFIX make -C "/usr/src/linux" -j $THREADS
+	$PREFIX make -C "/usr/src/linux" modules_install
 }
 
 function gentooinstall_phase_locale
 {
-	if $CHROOT; then
-		echo -n "Configuring the locale... "
-		gentooinstall_quiet env-update
-		source /etc/profile
-		echo "en_US ISO-8859-1" >>/etc/locale.gen
-		echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
-		gentooinstall_quiet locale-gen
-		gentooinstall_quiet eselect locale set en_US.utf8
-		echo "done."
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase locale
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
 	fi
+
+	echo -n "Setting the locale to \"en_US ISO-8859-1\" and \"en_US.UTF-8 UTF-8\"... "
+	echo "en_US ISO-8859-1" >>"$DESTINATION_ROOT/etc/locale.gen"
+	echo "en_US.UTF-8 UTF-8" >>"$DESTINATION_ROOT/etc/locale.gen"
+	gentooinstall_quiet $PREFIX locale-gen
+	gentooinstall_quiet $PREFIX eselect locale set en_US.utf8
+	echo "done."
 }
 
 function gentooinstall_phase_mount
 {
-	mkdir -p "$DESTINATION"
-	mount "$DEVICE"*2 "$DESTINATION"
-	mkdir -p "$DESTINATION"/boot
-	mount "$DEVICE"*1 "$DESTINATION"/boot
-}
+	mkdir -p "$DESTINATION_ROOT"
+	if [ "$DESTINATION_ROOT_UUID" = "" ]; then
+		gentooinstall_detect_root_device || return
+		mount "$DESTINATION_ROOT_DEVICE" "$DESTINATION_ROOT" || return
+	else
+		mount -U "$DESTINATION_ROOT_UUID" "$DESTINATION_ROOT" || return
+	fi
 
-function gentooinstall_phase_mountchroot
-{
-	mount -t proc none "$DESTINATION/proc"
-	mount --rbind /sys "$DESTINATION/sys"
-	mount --make-rslave "$DESTINATION/sys"
-	mount --rbind /dev "$DESTINATION/dev"
-	mount --make-rslave "$DESTINATION/dev"
+	mkdir -p "$DESTINATION_ROOT"/boot
+	if [ "$DESTINATION_BOOT_UUID" = "" ]; then
+		gentooinstall_detect_boot_device
+		if [ $? -eq 0 ]; then
+			mount --source "$DESTINATION_BOOT_DEVICE" "$DESTINATION_ROOT"/boot || return
+		else
+			echo "Continuing without a separate boot filesystem..."
+		fi
+	else
+		mount -U "$DESTINATION_BOOT_UUID" "$DESTINATION_ROOT"/boot || return
+	fi
 }
 
 function gentooinstall_phase_partition
 {
-	if [ ! -b "$DEVICE" ]; then
-		echo "error: \"$DEVICE\" is not a block device"
+	if [ ! -b "$DESTINATION" ]; then
+		echo "error: \"$DESTINATION\" is not a block device"
 		return 1
 	fi
-	if mount | grep "$DEVICE"; then
-		echo "error: \"$DEVICE\" is currently mounted"
+	if mount | grep "$DESTINATION"; then
+		echo "error: \"$DESTINATION\" is currently mounted"
 		return 2
 	fi
+	if ! diff -q <(dd bs=512 count=1 if="$DESTINATION" >/dev/null 2>/dev/null) <(dd bs=512 count=1 if=/dev/zero >/dev/null 2>/dev/null) >/dev/null; then
+		echo "error: \"$DESTINATION\" contains data and must be empty to continue"
+		return 3
+	fi
 	
-	local DEVICE_MODEL=$(hdparm -I "$DEVICE" 2>/dev/null | grep --text 'Model Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
-	local DEVICE_SERIAL=$(hdparm -I "$DEVICE" 2>/dev/null | grep --text 'Serial Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
-	local DEVICE_SIZE=$(blockdev --getsize64 "$DEVICE")
+	local DEVICE_MODEL=$(hdparm -I "$DESTINATION" 2>/dev/null | grep --text 'Model Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
+	local DEVICE_SERIAL=$(hdparm -I "$DESTINATION" 2>/dev/null | grep --text 'Serial Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
+	local DEVICE_SIZE=$(blockdev --getsize64 "$DESTINATION")
 	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$DEVICE_BLOCK_SIZE))
 	
 	local BOOT_SIZE_BLOCKS=$((128*1024*1024/$DEVICE_BLOCK_SIZE))
@@ -702,8 +743,8 @@ function gentooinstall_phase_partition
 	# leave one block at the beginning for the partition table, and one block at the end for rounding errors
 	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
 	
-	echo "Formatting with a $DEVICE_PARTITION_TYPE partition table and filesystems:"
-	echo "  Device: $DEVICE"
+	echo "Creating a $DEVICE_PARTITION_TYPE partition table and destination filesystems:"
+	echo "  Device: $DESTINATION"
 	if [ "$DEVICE_MODEL" != "" ]; then
 		echo "  Model Number: $DEVICE_MODEL"
 	fi
@@ -711,84 +752,119 @@ function gentooinstall_phase_partition
 		echo "  Serial Number: $DEVICE_SERIAL"
 	fi
 	echo "  Size: $DEVICE_SIZE Bytes"
-	echo "  Alignment Block Size: $DEVICE_BLOCK_SIZE Bytes"
+	echo "  Block Alignment Size: $DEVICE_BLOCK_SIZE Bytes"
 	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
 	echo "Press CTRL+C to cancel"
-	for SECONDS in `seq 10 -1 1`; do
+	for SECONDS in $(seq 10 -1 1); do
 		printf "\r${SECONDS} ... "
 		sleep 1
 	done
 	printf "\r0 ... \n"
 	
-	echo -n "Creating the partition table..."
-	parted --script "$DEVICE" mklabel $DEVICE_PARTITION_TYPE
-	echo " done."
-	echo -n "Creating the boot partition..."
-	parted --script "$DEVICE" mkpart primary fat32 "$DEVICE_BLOCK_SIZE"b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS - 1))b
-	parted --script "$DEVICE" set 1 boot on
-	mkfs.vfat -F 32 "$DEVICE"*1 >/dev/null 2>/dev/null
-	echo " done."
-	echo -n "Creating the root partition..."
-	parted --script "$DEVICE" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
-	mkfs.ext4 -b 4096 -F "$DEVICE"*2 >/dev/null 2>/dev/null
-	echo " done."
-	echo -n "Creating the swap partition..."
-	parted --script "$DEVICE" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
-	mkswap "$DEVICE"*3 >/dev/null 2>/dev/null
-	echo " done."
+	echo -n "Creating the $DEVICE_PARTITION_TYPE partition table... "
+	parted --script "$DESTINATION" mklabel $DEVICE_PARTITION_TYPE
+	echo "done."
+	echo -n "Creating the fat32 boot partition... "
+	parted --script "$DESTINATION" mkpart primary fat32 "$DEVICE_BLOCK_SIZE"b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS - 1))b
+	parted --script "$DESTINATION" set 1 boot on
+	partprobe "$DESTINATION"
+	sleep 5
+	gentooinstall_quiet mkfs.vfat -F 32 "$DESTINATION"*1 || return
+	sleep 5
+	DESTINATION_BOOT_UUID=$(blkid -s UUID -o value "$DESTINATION"*1)
+	echo "done."
+	echo -n "Creating the ext4 root partition... "
+	parted --script "$DESTINATION" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
+	partprobe "$DESTINATION"
+	sleep 5
+	gentooinstall_quiet mkfs.ext4 -b 4096 -F "$DESTINATION"*2 || return
+	sleep 5
+	DESTINATION_ROOT_UUID=$(blkid -s UUID -o value "$DESTINATION"*2)
+	echo "done."
+	echo -n "Creating the swap partition... "
+	parted --script "$DESTINATION" mkpart primary linux-swap $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
+	partprobe "$DESTINATION"
+	sleep 5
+	gentooinstall_quiet mkswap "$DESTINATION"*3 || return
+	sleep 5
+	DESTINATION_SWAP_UUID=$(blkid -s UUID -o value "$DESTINATION"*3)
+	echo "done."
 	local MEMORY_PHYSICAL=$(free -b | grep Mem | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
 	local MEMORY_SWAP=$(free -b | grep Swap | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
 	local MEMORY_TOTAL=$(($MEMORY_PHYSICAL+$MEMORY_SWAP))
-	echo "Total physical and swap memory available: $MEMORY_TOTAL Bytes"
 	if [ $MEMORY_TOTAL -lt $((1024*1024*1024*4)) ]; then
-		echo "Less than 4GiB of physical and swap memory detected"
-		echo -n "Activating the swap partition..."
-		swapon "$DEVICE"*3
-		echo " done."
+		echo "Physical memory available: $MEMORY_PHYSICAL Bytes"
+		echo "Swap memory available: $MEMORY_SWAP Bytes"
+		echo "Total memory available: $MEMORY_TOTAL Bytes"
+		echo "Less than 4GiB of memory detected"
+		echo -n "Activating the destination swap partition... "
+		swapon "$DESTINATION"*3
+		echo "done."
 	fi
 }
 
 function gentooinstall_phase_portage
 {
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		echo -n "Installing portage... "
-		if [ "$PORTAGE" = "latest" ]; then
-			gentooinstall_quiet emerge-webrsync || return
-			gentooinstall_quiet emerge --sync || return
-		else
-			wget "$PORTAGE" -O /tmp/portage.tar.bz2 || return
-			tar xjpf /tmp/portage.tar.bz2 -C /usr || return
-		fi
-		mkdir -p /etc/portage/package.keywords
-		touch /etc/portage/package.keywords/zzzz-autounmask-write
-		mkdir -p /etc/portage/package.use
-		touch /etc/portage/package.use/zzzz-autounmask-write
-		
-		echo "done."
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo -n "Installing portage... "
+	if [ "$PORTAGE" = "latest" ]; then
+		gentooinstall_quiet $PREFIX emerge-webrsync || return
+		gentooinstall_quiet $PREFIX emerge --sync || return
 	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase portage --portage "$PORTAGE"
+		$PREFIX wget "$PORTAGE" -O /tmp/portage.tar.bz2 || return
+		$PREFIX tar xjpf /tmp/portage.tar.bz2 -C /usr || return
+	fi
+	$PREFIX mkdir -p /etc/portage/package.keywords
+	$PREFIX touch /etc/portage/package.keywords/zzzz-autounmask-write
+	$PREFIX mkdir -p /etc/portage/package.use
+	$PREFIX touch /etc/portage/package.use/zzzz-autounmask-write
+	echo "done."
+}
+
+function gentooinstall_phase_procsysdev
+{
+	if ! findmnt "$DESTINATION_ROOT/proc" >/dev/null; then
+		mount -t proc none "$DESTINATION_ROOT/proc"
+	fi
+	if ! findmnt "$DESTINATION_ROOT/sys" >/dev/null; then
+		mount --rbind /sys "$DESTINATION_ROOT/sys"
+		mount --make-rslave "$DESTINATION_ROOT/sys"
+	fi
+	if ! findmnt "$DESTINATION_ROOT/dev" >/dev/null; then
+		mount --rbind /dev "$DESTINATION_ROOT/dev"
+		mount --make-rslave "$DESTINATION_ROOT/dev"
 	fi
 }
 
 function gentooinstall_phase_resolvconf
 {
-	if [ ! -f "$DESTINATION/etc/resolv.conf" ]; then
+	if [ ! -f "$DESTINATION_ROOT/etc/resolv.conf" ]; then
 		echo "Adding 8.8.8.8 and 8.8.4.4 to /etc/resolv.conf"
-		echo "nameserver 8.8.8.8" >>"$DESTINATION/etc/resolv.conf"
-		echo "nameserver 8.8.4.4" >>"$DESTINATION/etc/resolv.conf"
+		echo "nameserver 8.8.8.8" >>"$DESTINATION_ROOT/etc/resolv.conf"
+		echo "nameserver 8.8.4.4" >>"$DESTINATION_ROOT/etc/resolv.conf"
 	fi
+}
+
+function gentooinstall_phase_stage3extract
+{
+	local STAGE3=$(ls "$DESTINATION_ROOT"/stage3-*.tar.* | head -n 1)
+	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION_ROOT\"... "
+	tar xpf "$STAGE3" -C "$DESTINATION_ROOT" --xattrs --numeric-owner || return
+	echo "done."
 }
 
 # \brief Download the latest stage3 tarball
 function gentooinstall_phase_stage3download
 {
-	echo "Downloading the stage 3 tarball..."
-	mkdir -p "$DESTINATION"
+	echo -n "Downloading the stage 3 tarball... "
+	mkdir -p "$DESTINATION_ROOT"
 	if [ "$STAGE3" = "latest" ]; then
 		case "$ARCHITECTURE" in
 			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'ppc'|'ppc64'|'alpha')
@@ -807,43 +883,43 @@ function gentooinstall_phase_stage3download
 					'alpha') LATEST=$(wget --quiet "$MIRROR/releases/alpha/autobuilds/latest-stage3-alpha.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 				esac
 				BASENAME=$(basename "$LATEST")
-				STAGE3_FILE="$DESTINATION/$BASENAME"
+				STAGE3_FILE="$DESTINATION_ROOT/$BASENAME"
 				case "$ARCHITECTURE" in
-					'i486') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'i686') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'x86_64') wget -q --show-progress "$MIRROR/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv4') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv5') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'ppc') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'ppc64') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'alpha') wget -q --show-progress "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'i486') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'i686') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'x86_64') wget -q "$MIRROR/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv4') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv5') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 				esac
-				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS.asc"
+				STAGE3_HASHES="$DESTINATION_ROOT/$BASENAME.DIGESTS.asc"
 				case "$ARCHITECTURE" in
-					'i486') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'i686') wget -q --show-progress "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'x86_64') wget -q --show-progress "$MIRROR/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv4') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv5') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7hf') wget -q --show-progress "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'ppc') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'ppc64') wget -q --show-progress "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'alpha') wget -q --show-progress "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'i486') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'i686') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'x86_64') wget -q "$MIRROR/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv4') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv5') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 				esac
 				;;
 			"aarch64")
 				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/" | tail -n 1)
-				STAGE3_FILE="$DESTINATION/$BASENAME"
-				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
-				STAGE3_HASHES="$DESTINATION/$BASENAME.DIGESTS"
-				wget -q --show-progress "$MIRROR/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
+				STAGE3_FILE="$DESTINATION_ROOT/$BASENAME"
+				wget -q "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
+				STAGE3_HASHES="$DESTINATION_ROOT/$BASENAME.DIGESTS"
+				wget -q "$MIRROR/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
 				;;
 			*)
 				echo "error: unsupported architecture: $ARCHITECTURE"
@@ -851,45 +927,50 @@ function gentooinstall_phase_stage3download
 		esac
 	else
 		BASENAME=$(basename "$STAGE3")
-		wget -q --show-progress "$STAGE3" -O "$DESTINATION/$BASENAME.tar.gz"
-		wget -q --show-progress "$STAGE3.DIGESTS.asc" -O "$DESTINATION/$BASENAME.DIGESTS.asc"
+		wget -q "$STAGE3" -O "$DESTINATION_ROOT/$BASENAME.tar.gz"
+		wget -q "$STAGE3.DIGESTS.asc" -O "$DESTINATION_ROOT/$BASENAME.DIGESTS.asc"
 	fi
+	echo "done."
 }
 
 function gentooinstall_phase_stage3signature
 {
 	gentooinstall_check_dependencies gpg
 
-	gentooinstall_quiet gpg --fingerprint '13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910'
-	if [ $? -ne 0 ]; then
-		echo "The key: Gentoo Linux Release Engineering (Automated Weekly Release Key) is not installed"
-		echo "Installing the key: Gentoo Linux Release Engineering (Automated Weekly Release Key)..."
-		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys '13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910'
+	if ! gpg --list-keys '13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910' >/dev/null 2>/dev/null; then
+		echo "GPG key not found: 13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910 - Gentoo Linux Release Engineering (Automated Weekly Release Key)"
+		echo -n "Importing GPG key: 13EB BDBE DE7A 1277 5DFD B1BA BB57 2E0E 2D18 2910... "
+		echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmQINBEqUWzgBEACXftaG+HVuSQBEqdpBIg2SOVgWW/KbCihO5wPOsdbM93e+psmb\nwvw+OtNHADQvxocKMuZX8Q/j5i3nQ/ikQFW5Oj6UXvl1qyxZhR2P7GZSNQxn0eMI\nzAX08o691ws2/dFGXKmNT6btYJ0FxuTtTVSK6zi68WF+ILGK/O2TZXK9EKfZKPDH\nKHcGrUq4c03vcGANz/8ksJj2ZYEGxMr1h7Wfe9PVcm0gCB1MhYHNR755M47V5Pch\nfyxbs6vaKz82PgrNjjjbT0PISvnKReUOdA2PFUWry6UKQkiVrLVDRkd8fryLL8ey\n5JxgVoJZ4echoVWQ0JYJ5lJTWmcZyxQYSAbz2w9dLB+dPyyGpyPp1KX1ADukbROp\n9S11I9+oVnyGdUBm+AUme0ecekWvt4qiCw3azghLSwEyGZc4a8nNcwSqFmH7Rqdd\n1+gHc+4tu4WHmguhMviifGXKyWiRERULp0obV33JEo/c4uwyAZHBTJtKtVaLb92z\naRdh1yox2I85iumyt62lq9dfOuet4NNVDnUkqMYCQD23JB8IM+qnVaDwJ6oCSIKi\nnY3uyoqbVE6Lkm+Hk5q5pbvg1cpEH6HWWAl20EMCzMOoMcH0tPyQLDlD2Mml7veG\nkwdy3S6RkjCympbNzqWec2+hkU2c93Bgpfh7QP0GDN0qrzcNNFmrD5795QARAQAB\ntFNHZW50b28gTGludXggUmVsZWFzZSBFbmdpbmVlcmluZyAoQXV0b21hdGVkIFdl\nZWtseSBSZWxlYXNlIEtleSkgPHJlbGVuZ0BnZW50b28ub3JnPokCUgQTAQoAPAYL\nCQgHAwIEFQIIAwMWAgECHgECF4ACGwMWIQQT672+3noSd139sbq7Vy4OLRgpEAUC\nXMRr7wUJFGgDagAKCRC7Vy4OLRgpEMG6D/9ppsqaA6C8VXADtKnHYH77fb9SAsAY\nYcDpZnT8wcfMlOTA7c5rEjNXuWW0BFNBi13CCPuThNbyLWiRhmlVfb6Mqp+J+aJc\nrSHTQrBtByFDmXKnaljOrVKVej7uL+sdRen/tGhd3OZ5nw38fNID8nv7ZQiSlCQh\nluKnfMDw/ukvPuzaTmVHEJ6udI0PvRznk3XgSb6ZSi2BZYHn1/aoDkKN9OswiroJ\npPpDAib9bzitb9FYMOWhra9Uet9akWnVxnM+XIK2bNkO2dbeClJMszN93r0BIvSu\n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\nyqu4wb67pwMX312ABdpW\n=kSzn\n-----END PGP PUBLIC KEY BLOCK-----" | \
+			gentooinstall_quiet gpg --import
+		echo "done."
 	fi
 
-	gentooinstall_quiet gpg --fingerprint 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
-	if [ $? -ne 0 ]; then
-		echo "The key: Gentoo ebuild repository signing key (Automated Signing Key) is not installed"
-		echo "Installing the key: Gentoo ebuild repository signing key (Automated Signing Key)..."
-		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D'
+	if ! gpg --list-keys 'DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D' >/dev/null 2>/dev/null; then
+		echo "GPG key not found: DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D - Gentoo ebuild repository signing key (Automated Signing Key)"
+		echo -n "Importing GPG key: DCD0 5B71 EAB9 4199 527F 44AC DB6B 8C1F 96D8 BF6D... "
+		echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n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\n+5yeytird76XgQHx8V8I/XryfT+TIUrPNNm4sKqYKLpHydjqfl6/EVbPbMHMKCBr\nEdBCna44xP6z3POSwdzcg6Kvt8j6UqOzn8IAnXGJRmdxGRi8erU6HinnBQAwKlLx\nmxRhIXHvMv/Wv0BVtktRx8QKe4olL3V7HkWWdX4B5uZxU2XHlJMPg758N6WtxHSV\nUMgPYx/OQjjO5/V+oIvUGNuaM864dbWf8PzhYpNds7XqMi2v0+jp4ALpQfIqc8X6\nDsKsWK9QfPT1M9zqlWlL3A+RKMtCYsHTl2cuFsbuw1IOD/BZQBizrxNxQVsXELrr\nP/3VT8QwsxCOUELnBa27GIOBiG/vCRDba4wflti/bVFxEACnm3I1urj4sZKYG/Gl\noE8eKQGsJ1Gw6uTbC1PsfnuJ2GYWaS7agM6uG2xQwIpcPbT8XimsrnQfNSmgt1jK\nWvxN1JAb2qAyyozRBkZm7CVctnXiw/r2VHtM3cn/2RJnOfUMvqnvS3KYjtjq2oTY\nqbRab4tH3VRYF/6PrcufNVXyRggYA7+T3Ma3uddrsmVP/ftuC8T4jTQWQ70jnf6S\nnAgMhhpWP1ZhrHAsKYDPQtXfeQhR2aW4sml7M/t+Ol8WXLS0KHbALF7xwuXzhqvb\nwWbR1gPHsTrG8GdmyIhNAQw++pXH1+CWGTVG0r3mptWIzHpfkF9zPigmn8mMbQ9t\nefY1bTVCZiM1L4ubrODaxS+YmpWZaOeLYbnWQpUEqRZQx1Xkv8S6tlsk9IefaSQQ\njEn9e+zwzjFzYfr07IuF3vZXW6a0L3NboDYmBJA+2ZP0E0t3uoYTq8y4ScFOzUVG\nG0oz+/y/mIG1mogVZ2ouFGkYK8gPdNhc0ZejVVA1Y5rPMAoH060S7FVElIZ3NomK\n5GeQs2iEbQwMiG9OG+BdBjTo7TdAaISdtJzTwswYVGNaH7pjUNQyBYpf7AOFJRRw\nz/w0WTk7HczA5qjyoNOcchbGeOJyqVR1g1lToeMpuX/4gkyGyGMpQQ2wC54xAc4E\nsiwaUjj24UF9tAk2REQF9zfWuQ==\n=9afW\n-----END PGP PUBLIC KEY BLOCK-----" | \
+			gentooinstall_quiet gpg --import
+		echo "done."
 	fi
 
-	gentooinstall_quiet gpg --fingerprint 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
-	if [ $? -ne 0 ]; then
-		echo "The key: Gentoo repository mirrors (automated git signing key) is not installed"
-		echo "Installing the key: Gentoo repository mirrors (automated git signing key)..."
-		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72'
+	if ! gpg --list-keys 'EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72' >/dev/null 2>/dev/null; then
+		echo "GPG key not found: EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72 - Gentoo repository mirrors (automated git signing key)"
+		echo -n "Importing GPG key: EF95 38C9 E8E6 4311 A52C DEDF A13D 0EF1 914E 7A72... "
+		echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n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\nmkqS/djKOpFbZKiOaw==\n=G8MU\n-----END PGP PUBLIC KEY BLOCK-----" | \
+			gentooinstall_quiet gpg --import
+		echo "done."
 	fi
 
-	gentooinstall_quiet gpg --fingerprint 'D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
-	if [ $? -ne 0 ]; then
-		echo "The key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key) is not installed"
-		echo "Installing the key: Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key)..."
-		gentooinstall_quiet gpg --keyserver hkps.pool.sks-keyservers.net --recv-keys 'D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058'
+	if ! gpg --list-keys 'D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058' >/dev/null 2>/dev/null; then
+		echo "GPG key not found: D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058 - Gentoo Linux Release Engineering (Gentoo Linux Release Signing Key)"
+		echo -n "Importing GPG key: D99E AC73 79A8 50BC E47D A5F2 9E64 38C8 1707 2058... "
+		echo -e "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nmQGiBED8eAURBACYoKhuBXU1mvQfL3A96dShH4JNqNpzI54rsV+0Exic3isQ5oA0\n5hlpQXnfRw+s4QcjmFQUgsNCZ8eOYYwpMKlJdTxx0pWYs2QNh5eZA5SJwGNq/UBx\n/6HiuhhP2CdAySL105d90lBvxbcVQrgTTN0OLFheRk4dksFf6fKMa3p+WwCgvzCQ\nVm8IKZUW/Yc1qouv35BFTU8D+wWNbtqpl35uUSbxki1qR8SHSfKULvLSIlUZOoRg\nrpphF+8BwVk0vw2Yl+V9dWZnNU8W2aXJjaDkkZZNn4mqs+v1HV4DVOXDH43OpXvR\nGoMKIjokkjlxE2Zy6JrL/REwOFj7d0y8uk6YHK2U8KY5bM+tLPridABt8JhBw+2j\nJkE4A/9L0nbHHxr93s7GBRna9zx3xWSxtB6RV2agsCBA7V/s0UA1fUk4LaxKzLGr\nnqFSc67TV5lQ0qC89taxVm9o1uihkuUqnXpMQfeOlFUwox9uRqtp5r0vBEvzYGK+\n3cRhiZfh2+J1YRTrQZ/Oa3LftwcGWBMP0sRnQTq4tgBHFi7CO7RXR2VudG9vIExp\nbnV4IFJlbGVhc2UgRW5naW5lZXJpbmcgKEdlbnRvbyBMaW51eCBSZWxlYXNlIFNp\nZ25pbmcgS2V5KSA8cmVsZW5nQGdlbnRvby5vcmc+iHsEExECADsCGwMGCwkIBwMC\nAxUCAwMWAgECHgECF4AWIQTZnqxzeahQvOR9pfKeZDjIFwcgWAUCWzUlcAUJHgAC\nvAAKCRCeZDjIFwcgWEMIAKC+0oX5HidT+Ew1MMUgPhX9mx/ZEwCeP9eC+gHhOIYz\ntCWbj2iIUYJqBnu5Ag0EQPx4EBAIAILPfFcfkOWkW4gq+f5s9aVmsbxenbnN9OmX\nEVO2WEuxzpksSY74yr6z6zMZEqIAIIJuRD4k8dji/xy1pj10bghpLJgFhRINwf5W\nHT3pZiZ64fufcd4DWPgblrdYPfSnNSZWo3JW2CBs0IWGtdznNbmJqmt1OM25UIcE\nNoJpgjC3Dz20Vc14TBMGZfoTod1YXPZDrcDHmDrwjAMVN0RbXu2IqBPT5sAgFdXs\nVEY9iQd3zykRfHkCktv4Xca34RcPbIdAjjAGVeFnPrinkLQFuBnAKF6fdZ9y1Xru\nZB4bl2E40EF7tdgZ/mcno3gruiYvf6IMUO1sLe60xTDHnugvHX8AAwUH/i32SmD5\nW8mZ2cfTzGrayYH62B9Nr4KQG0BOsmxAyX9xHqKgl1scx1BAHDAHbOW7kqMQx1bZ\n6g5QKjJPCPmFjpSsxbbdCwfqiXrv2uvIyi18wL7GW4ktVZQKYJSPxcPxcWio4pSC\n9LKvvCkIDV7epki0mnHpLBbPjeHwlTkct50cDkCVkhc3QSD4Iit6EnCX662zyus0\nIjDbEiIZMsoT8hQ+bKYFZdjfkEGUE6wRl9nGjVpW5+yepGAJYaMfVav/VoVaKlTb\nu8FvS5rFMXv6uGkG7XJvZ9E/y7lU8f2CRu9+Iw9gNMZWoaj5u34lugHK7f+ihT4l\n7cOu6kA7m8ehRfWIZgQYEQIAJgIbDBYhBNmerHN5qFC85H2l8p5kOMgXByBYBQJb\nNSWABQkeAAKxAAoJEJ5kOMgXByBY6QwAoJbRgiKEYf6QBTjw/ddKsA5xQvNuAKC6\nc9GJ86BwIJvTcAQLD7w8O2bDFw==\n=NXAz\n-----END PGP PUBLIC KEY BLOCK-----" | \
+			gentooinstall_quiet gpg --import
+		echo "done."
 	fi
 
 	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	local STAGE3_SIGNATURE=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
+	local STAGE3_SIGNATURE=$(ls "$DESTINATION_ROOT/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
 	gentooinstall_quiet gpg --refresh-keys
 	gentooinstall_quiet gpg --verify "$STAGE3_SIGNATURE"
 	if [ $? -ne 0 ]; then
@@ -903,8 +984,8 @@ function gentooinstall_phase_stage3signature
 function gentooinstall_phase_stage3hash
 {
 	echo -n "Verifying the hash of the stage3 tarball... "
-	local STAGE3_FILE=$(ls "$DESTINATION/stage3-"*".tar."* | head -n 1)
-	local STAGE3_HASHES=$(ls "$DESTINATION/stage3-"*".tar."*".DIGESTS"* | head -n 1)
+	local STAGE3_FILE=$(ls "$DESTINATION_ROOT/stage3-"*".tar."* | head -n 1)
+	local STAGE3_HASHES=$(ls "$DESTINATION_ROOT/stage3-"*".tar."*".DIGESTS"* | head -n 1)
 	grep $(sha512sum "$STAGE3_FILE") "$STAGE3_HASHES" >/dev/null
 	if [ $? -ne 0 ]; then
 		echo "Failed."
@@ -916,45 +997,41 @@ function gentooinstall_phase_stage3hash
 
 function gentooinstall_phase_timezone
 {
-	if $CHROOT; then
-		echo -n "Configuring the timezone... "
-		gentooinstall_quiet env-update
-		source /etc/profile
-		echo "$TIMEZONE" >/etc/timezone
-		gentooinstall_quiet emerge --config sys-libs/timezone-data
-		echo "done."
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase timezone -t "$TIMEZONE"
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
 	fi
+
+	echo -n "Setting the timezone to \"$TIMEZONE\"... "
+	echo "$TIMEZONE" >"$DESTINATION_ROOT/etc/timezone"
+	gentooinstall_quiet $PREFIX emerge --config sys-libs/timezone-data
+	echo "done."
 }
 
 function gentooinstall_phase_update
 {
-	if $CHROOT; then
-		echo -n "Updating world packages... "
-		gentooinstall_quiet env-update
-		source /etc/profile
-		FEATURES="-pid-sandbox" gentooinstall_quiet emerge -1u --backtrack=65536 sys-apps/portage || return
-		FEATURES="-pid-sandbox" gentooinstall_quiet emerge -uDN --with-bdeps=y --backtrack=65536 world || return
-		echo "done."
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase update
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
 	fi
+
+	echo -n "Updating world packages... "
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -1u --backtrack=65536 sys-apps/portage || return
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uDN --with-bdeps=y --backtrack=65536 world || return
+	echo "done."
 }
 
 function gentooinstall_phase_password
 {
-	if $CHROOT; then
-		gentooinstall_quiet env-update
-		source /etc/profile
-		
-		echo "root:$PASSWORD" | chpasswd
-	else
-		cp -f "$THIS" "$DESTINATION/tmp"
-		$CHROOTARCH chroot "$DESTINATION" /tmp/gentooinstall --chroot --phase password --password "$PASSWORD"
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
 	fi
+
+	echo "root:$PASSWORD" | $PREFIX chpasswd
 }
 
 # \brief Run a command and only show output if an error occurs
@@ -977,26 +1054,31 @@ function gentooinstall_quiet
 ARCHITECTURE=$(gentooinstall_architecture)
 ASSIMILATE=false
 BOOTLOADER=uefi-refind
-CHROOT=false
 CHROOTARCH=""
 DEBUG=false
-DESTINATION=/mnt/gentoo
-DEVICE=/tmp/none
+DESTINATION="/mnt/gentoo"
+DESTINATION_ROOT="/mnt/gentoo"
+DESTINATION_ROOT_DEVICE=""
+DESTINATION_BOOT_DEVICE=""
+DESTINATION_BOOT_DEVICE_PARENT=""
+DESTINATION_BOOT_UUID=""
+DESTINATION_ROOT_PARTUUID=""
+DESTINATION_ROOT_UUID=""
+DESTINATION_SWAP_UUID=""
 DEVICE_BLOCK_SIZE=$((1024*1024))
 DEVICE_PARTITION_TYPE=gpt
-EMAIL=""
-IMAGE=""
-KERNEL="/boot/kernel"
 MIRROR="http://distfiles.gentoo.org"
 NICE=0
 PASSWORD="password"
-PHASES="stage3download,stage3signature,stage3hash,extract,dynamictranslation,deletestage3,resolvconf,mountchroot,portage,timezone,locale,update,password"
+PHASES="stage3download,stage3signature,stage3hash,stage3extract,stage3delete,dynamictranslation,resolvconf,procsysdev,portage,timezone,locale,update,password"
+PHASES_DEFAULT=false
 PORTAGE="latest"
 STAGE3="latest"
 THREADS=$(grep -c processor /proc/cpuinfo)
 TIMEZONE="UTC"
 TMP="/tmp"
 VERBOSITY=0
+NEWS=true
 WARNING=true
 
 #------------------------------------------------------------------------------
@@ -1012,54 +1094,58 @@ while [ $# -ne 0 ]; do
 	case "$1" in
 		#"--assimilate")
 		#	ASSIMILATE=true
-		#	IMAGE="$2"
 		#	shift 2
 		#	;;
 		"-a"|"--architecture")
 			ARCHITECTURE="$2"
 			shift 2
 			;;
-		"-b"|"--block-device")
-			DEVICE="$2"
-			shift 2
-			;;
-		"--block-device-block-size")
-			DEVICE_BLOCK_SIZE="$2"
-			shift 2
-			;;
-		"--block-device-partition-type")
-			DEVICE_PARTITION_TYPE="$2"
-			shift 2
-			;;
 		"--bootloader")
 			BOOTLOADER="$2"
 			shift 2
 			;;
-		"--chroot")
-			CHROOT=true
-			shift
-			;;
 		"-d"|"--destination")
 			DESTINATION="$2"
+			shift 2
+			;;
+		"--destination-root-partuuid")
+			DESTINATION_ROOT_PARTUUID="$2"
 			shift 2
 			;;
 		"-h"|"--help")
 			gentooinstall_help
 			exit
 			;;
+		"-m"|"--mountpoint")
+			DESTINATION_ROOT="$2"
+			shift 2
+			;;
 		"--mirror")
 			MIRROR="$2"
 			shift 2
 			;;
+		"--no-news")
+			NEWS=false
+			shift
+			;;
 		"--no-warning")
 			WARNING=false
 			shift
+			;;
+		"--partition-type")
+			DEVICE_PARTITION_TYPE="$2"
+			shift 2
+			;;
+		"--partition-block-size")
+			DEVICE_BLOCK_SIZE="$2"
+			shift 2
 			;;
 		"--password")
 			PASSWORD="$2"
 			shift 2
 			;;
 		"-p"|"--phase")
+			PHASES_DEFAULT=true
 			PHASES="$2"
 			shift 2
 			;;
@@ -1089,12 +1175,51 @@ if [ "$(gentooinstall_architecture)" = "x86_64" -a "$ARCHITECTURE" = "i686" ]; t
 	CHROOTARCH="linux32"
 fi
 
+if test -f "$DESTINATION"; then
+	DESTINATION_FILE="$DESTINATION"
+	DESTINATION=$(losetup -j "$DESTINATION_FILE" | cut -d ':' -f 1)
+	if [ -b "$DESTINATION" ]; then
+		echo "using existing loop device for \"$DESTINATION_FILE\" which is \"$DESTINATION\"."
+	else
+		losetup -f "$DESTINATION_FILE"
+		if [ $? -ne 0 ]; then
+			echo "error: unable to setup loop device for \"$DESTINATION_FILE\""
+			exit 1
+		fi
+		DESTINATION=$(losetup -j "$DESTINATION_FILE" | cut -d ':' -f 1)
+		if [ ! -b "$DESTINATION" ]; then
+			echo "error: unable to setup loop device for \"$DESTINATION_FILE\""
+			exit 1
+		fi
+	fi
+fi
+if test -b "$DESTINATION" && ! $PHASES_DEFAULT; then
+	PHASES="partition,mount,$PHASES"
+fi
+if [ ! -b "$DESTINATION" ]; then
+	DESTINATION_ROOT="$DESTINATION"
+fi
+
+#------------------------------------------------------------------------------
+# prepare environment
+
+# alias diff to busybox if diff is missing
+if ! type diff >/dev/null 2>/dev/null; then
+	if /bin/busybox diff /bin/busybox /bin/busybox; then
+		function diff
+		{
+			/bin/busybox diff "$@"
+		}
+	else
+		echo "$CODENAME: \"diff\" is required for this application to work correctly." >&2
+		exit 1
+	fi
+fi
+
 #------------------------------------------------------------------------------
 # begin execution
 
-if $ASSIMILATE; then
-	gentooinstall_assimilate
-else
-	gentooinstall_phases
+gentooinstall_phases
+if [ $? -eq 0 ]; then
+	gentooinstall_news
 fi
-gentooinstall_news
