@@ -743,8 +743,9 @@ function gentooinstall_phase_partition
 	# leave one block at the beginning for the partition table, and one block at the end for rounding errors
 	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
 	
-	echo "Creating a $DEVICE_PARTITION_TYPE partition table and destination filesystems:"
+	echo "Creating a partition table and destination filesystems:"
 	echo "  Device: $DESTINATION"
+	echo "  Partition Table Type: $DEVICE_PARTITION_TYPE"
 	if [ "$DEVICE_MODEL" != "" ]; then
 		echo "  Model Number: $DEVICE_MODEL"
 	fi
@@ -821,8 +822,8 @@ function gentooinstall_phase_portage
 		$PREFIX wget "$PORTAGE" -O /tmp/portage.tar.bz2 || return
 		$PREFIX tar xjpf /tmp/portage.tar.bz2 -C /usr || return
 	fi
-	$PREFIX mkdir -p /etc/portage/package.keywords
-	$PREFIX touch /etc/portage/package.keywords/zzzz-autounmask-write
+	$PREFIX mkdir -p /etc/portage/package.accept_keywords
+	$PREFIX touch /etc/portage/package.accept_keywords/zzzz-autounmask-write
 	$PREFIX mkdir -p /etc/portage/package.use
 	$PREFIX touch /etc/portage/package.use/zzzz-autounmask-write
 	echo "done."
@@ -1219,6 +1220,9 @@ fi
 #------------------------------------------------------------------------------
 # begin execution
 
+echo "Installing Gentoo Linux..."
+echo "  Destination: \"$DESTINATION\""
+echo "  Architecture: \"$ARCHITECTURE\""
 gentooinstall_phases
 if [ $? -eq 0 ]; then
 	gentooinstall_news
