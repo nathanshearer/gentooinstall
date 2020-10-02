@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.0.0.0"
+VERSION="2.0.1.0"
 
 function gentooinstall_architecture
 {
@@ -407,19 +407,20 @@ function gentooinstall_phase_bootloader_bios_lilo
 	# this symlink is a workaround for that problem
 	BOOTBYID=$(find -L "$DESTINATION_ROOT/dev/disk/by-id" -samefile "$DESTINATION_BOOT_DEVICE_PARENT" | head -n 1)
 	if [ ! -b "$BOOTBYID" ]; then
-		echo "error: the disk ID for \"$DESTINATION_BOOT_DEVICE_PARENT\" could not be identified."
-		return 2
+		echo "warning: the disk ID for \"$DESTINATION_BOOT_DEVICE_PARENT\" could not be identified. Using \"$DESTINATION_BOOT_DEVICE_PARENT\" instead."
+		BOOTBYID="$DESTINATION_BOOT_DEVICE_PARENT"
 	fi
+	ln -s "$BOOTBYID" /etc/lilo.conf.bootdevice
 
 	echo "default=Gentoo" >"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "prompt" >>"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "timeout=100" >>"$DESTINATION_ROOT/etc/lilo.conf"
-	echo "boot=/etc/lilo.conf.boot" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "boot=/etc/lilo.conf.bootdevice" >>"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "image=/boot/$KERNEL" >>"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "	label=Gentoo" >>"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "	append=\"root=PARTUUID=$DESTINATION_ROOT_PARTUUID rootwait\"" >>"$DESTINATION_ROOT/etc/lilo.conf"
 
-	gentooinstall_quiet $PREFIX lilo -b "$DESTINATION_BOOT_DEVICE_PARENT"
+	gentooinstall_quiet $PREFIX lilo -b "$BOOTBYID"
 }
 
 function gentooinstall_phase_bootloader_uefi_refind
@@ -772,25 +773,49 @@ function gentooinstall_phase_partition
 	parted --script "$DESTINATION" set 1 boot on
 	partprobe "$DESTINATION"
 	sleep 5
-	gentooinstall_quiet mkfs.vfat -F 32 "$DESTINATION"*1 || return
+	if [ -b "$DESTINATION"p1 ]; then
+		DESTINATION_1="$DESTINATION"p1
+	elif [ -b "$DESTINATION"1 ]; then
+		DESTINATION_1="$DESTINATION"1
+	else
+		echo "error: Unable to locate first partition on \"$DESTINATION\""
+		return 4
+	fi
+	gentooinstall_quiet mkfs.vfat -F 32 "$DESTINATION_1" || return
 	sleep 5
-	DESTINATION_BOOT_UUID=$(blkid -s UUID -o value "$DESTINATION"*1)
+	DESTINATION_BOOT_UUID=$(blkid -s UUID -o value "$DESTINATION_1")
 	echo "done."
 	echo -n "Creating the ext4 root partition... "
 	parted --script "$DESTINATION" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
 	partprobe "$DESTINATION"
 	sleep 5
-	gentooinstall_quiet mkfs.ext4 -b 4096 -F "$DESTINATION"*2 || return
+	if [ -b "$DESTINATION"p2 ]; then
+		DESTINATION_2="$DESTINATION"p2
+	elif [ -b "$DESTINATION"2 ]; then
+		DESTINATION_2="$DESTINATION"2
+	else
+		echo "error: Unable to locate second partition on \"$DESTINATION\""
+		return 5
+	fi
+	gentooinstall_quiet mkfs.ext4 -b 4096 -F "$DESTINATION_2" || return
 	sleep 5
-	DESTINATION_ROOT_UUID=$(blkid -s UUID -o value "$DESTINATION"*2)
+	DESTINATION_ROOT_UUID=$(blkid -s UUID -o value "$DESTINATION_2")
 	echo "done."
 	echo -n "Creating the swap partition... "
 	parted --script "$DESTINATION" mkpart primary linux-swap $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
 	partprobe "$DESTINATION"
 	sleep 5
-	gentooinstall_quiet mkswap "$DESTINATION"*3 || return
+	if [ -b "$DESTINATION"p3 ]; then
+		DESTINATION_3="$DESTINATION"p3
+	elif [ -b "$DESTINATION"3 ]; then
+		DESTINATION_3="$DESTINATION"3
+	else
+		echo "error: Unable to locate third partition on \"$DESTINATION\""
+		return 5
+	fi
+	gentooinstall_quiet mkswap "$DESTINATION_3" || return
 	sleep 5
-	DESTINATION_SWAP_UUID=$(blkid -s UUID -o value "$DESTINATION"*3)
+	DESTINATION_SWAP_UUID=$(blkid -s UUID -o value "$DESTINATION_3")
 	echo "done."
 	local MEMORY_PHYSICAL=$(free -b | grep Mem | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
 	local MEMORY_SWAP=$(free -b | grep Swap | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
@@ -801,7 +826,7 @@ function gentooinstall_phase_partition
 		echo "Total memory available: $MEMORY_TOTAL Bytes"
 		echo "Less than 4GiB of memory detected"
 		echo -n "Activating the destination swap partition... "
-		swapon "$DESTINATION"*3
+		swapon "$DESTINATION_3"
 		echo "done."
 	fi
 }
