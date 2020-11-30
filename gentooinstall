@@ -245,7 +245,7 @@ function gentooinstall_help
 	echo "    Set the root password to \"password\"."
 	echo "  --partition-type gpt"
 	echo "    The type of a partition table to create: gpt or msdos."
-	echo "  --partition-block-size $((1024*1024))"
+	echo "  --partition-alignment $((1024*1024))"
 	echo "    The block size used for partition alignment."
 	echo "  -p, --phase phase1,phase2,..."
 	echo "    A comma-separated list of which phases to run:"
@@ -731,22 +731,21 @@ function gentooinstall_phase_partition
 	local DEVICE_MODEL=$(hdparm -I "$DESTINATION" 2>/dev/null | grep --text 'Model Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
 	local DEVICE_SERIAL=$(hdparm -I "$DESTINATION" 2>/dev/null | grep --text 'Serial Number' | cut -d ':' -f 2 | sed -r -e 's/ *(.*?) */\1/')
 	local DEVICE_SIZE=$(blockdev --getsize64 "$DESTINATION")
-	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$DEVICE_BLOCK_SIZE))
+	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$PARTITION_ALIGNMENT))
 	
-	local BOOT_SIZE_BLOCKS=$((128*1024*1024/$DEVICE_BLOCK_SIZE))
-	if [ $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) -lt $((128*1024*1024)) ]; then
-		BOOT_SIZE_BLOCKS=$((128*1024*1024/$DEVICE_BLOCK_SIZE + 1))
+	local BOOT_SIZE_BLOCKS=$((512*1024*1024/$PARTITION_ALIGNMENT))
+	if [ $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((512*1024*1024)) ]; then
+		BOOT_SIZE_BLOCKS=$((512*1024*1024/$PARTITION_ALIGNMENT + 1))
 	fi
-	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$DEVICE_BLOCK_SIZE))
-	if [ $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) -lt $((4096*1024*1024)) ]; then
-		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$DEVICE_BLOCK_SIZE + 1))
+	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$PARTITION_ALIGNMENT))
+	if [ $(($SWAP_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((4096*1024*1024)) ]; then
+		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$PARTITION_ALIGNMENT + 1))
 	fi
 	# leave one block at the beginning for the partition table, and one block at the end for rounding errors
 	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
 	
 	echo "Creating a partition table and destination filesystems:"
 	echo "  Device: $DESTINATION"
-	echo "  Partition Table Type: $DEVICE_PARTITION_TYPE"
 	if [ "$DEVICE_MODEL" != "" ]; then
 		echo "  Model Number: $DEVICE_MODEL"
 	fi
@@ -754,10 +753,11 @@ function gentooinstall_phase_partition
 		echo "  Serial Number: $DEVICE_SERIAL"
 	fi
 	echo "  Size: $DEVICE_SIZE Bytes"
-	echo "  Block Alignment Size: $DEVICE_BLOCK_SIZE Bytes"
-	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
-	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
-	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$DEVICE_BLOCK_SIZE)) Bytes"
+	echo "  Partition Type: $PARTITION_TYPE"
+	echo "  Partition Alignment: $PARTITION_ALIGNMENT Bytes"
+	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
+	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
+	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
 	echo "Press CTRL+C to cancel"
 	for SECONDS in $(seq 10 -1 1); do
 		printf "\r${SECONDS} ... "
@@ -765,11 +765,11 @@ function gentooinstall_phase_partition
 	done
 	printf "\r0 ... \n"
 	
-	echo -n "Creating the $DEVICE_PARTITION_TYPE partition table... "
-	parted --script "$DESTINATION" mklabel $DEVICE_PARTITION_TYPE
+	echo -n "Creating the $PARTITION_TYPE partition table... "
+	parted --script "$DESTINATION" mklabel $PARTITION_TYPE
 	echo "done."
 	echo -n "Creating the fat32 boot partition... "
-	parted --script "$DESTINATION" mkpart primary fat32 "$DEVICE_BLOCK_SIZE"b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS - 1))b
+	parted --script "$DESTINATION" mkpart primary fat32 "$PARTITION_ALIGNMENT"b $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS - 1))b
 	parted --script "$DESTINATION" set 1 boot on
 	partprobe "$DESTINATION"
 	sleep 5
@@ -786,7 +786,7 @@ function gentooinstall_phase_partition
 	DESTINATION_BOOT_UUID=$(blkid -s UUID -o value "$DESTINATION_1")
 	echo "done."
 	echo -n "Creating the ext4 root partition... "
-	parted --script "$DESTINATION" mkpart primary ext4 $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS - 1))b
+	parted --script "$DESTINATION" mkpart primary ext4 $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS))b $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$ROOT_SIZE_BLOCKS - 1))b
 	partprobe "$DESTINATION"
 	sleep 5
 	if [ -b "$DESTINATION"p2 ]; then
@@ -802,7 +802,7 @@ function gentooinstall_phase_partition
 	DESTINATION_ROOT_UUID=$(blkid -s UUID -o value "$DESTINATION_2")
 	echo "done."
 	echo -n "Creating the swap partition... "
-	parted --script "$DESTINATION" mkpart primary linux-swap $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS))b $(($DEVICE_BLOCK_SIZE + $DEVICE_BLOCK_SIZE*$BOOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$ROOT_SIZE_BLOCKS + $DEVICE_BLOCK_SIZE*$SWAP_SIZE_BLOCKS - 1))b
+	parted --script "$DESTINATION" mkpart primary linux-swap $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$ROOT_SIZE_BLOCKS))b $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$ROOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$SWAP_SIZE_BLOCKS - 1))b
 	partprobe "$DESTINATION"
 	sleep 5
 	if [ -b "$DESTINATION"p3 ]; then
@@ -1091,8 +1091,8 @@ DESTINATION_BOOT_UUID=""
 DESTINATION_ROOT_PARTUUID=""
 DESTINATION_ROOT_UUID=""
 DESTINATION_SWAP_UUID=""
-DEVICE_BLOCK_SIZE=$((1024*1024))
-DEVICE_PARTITION_TYPE=gpt
+PARTITION_ALIGNMENT=$((1024*1024))
+PARTITION_TYPE=gpt
 MIRROR="http://distfiles.gentoo.org"
 NICE=0
 PASSWORD="password"
@@ -1159,11 +1159,11 @@ while [ $# -ne 0 ]; do
 			shift
 			;;
 		"--partition-type")
-			DEVICE_PARTITION_TYPE="$2"
+			PARTITION_TYPE="$2"
 			shift 2
 			;;
-		"--partition-block-size")
-			DEVICE_BLOCK_SIZE="$2"
+		"--partition-alignment")
+			PARTITION_ALIGNMENT="$2"
 			shift 2
 			;;
 		"--password")
@@ -1246,8 +1246,8 @@ fi
 # begin execution
 
 echo "Installing Gentoo Linux..."
-echo "  Destination: \"$DESTINATION\""
-echo "  Architecture: \"$ARCHITECTURE\""
+echo "  Destination: $DESTINATION"
+echo "  Architecture: $ARCHITECTURE"
 gentooinstall_phases
 if [ $? -eq 0 ]; then
 	gentooinstall_news
