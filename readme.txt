@@ -5,6 +5,8 @@ Usage:
   gentooinstall [options]
 
 Options:
+  --assimilate
+    Convert the destination into Gentoo Linux.
   -a, --architecture x86_64
     Which guest architecture to install. Default is the host architecture.
     Supported architectures are:
@@ -33,10 +35,10 @@ Options:
   --mirror http://distfiles.gentoo.org
     Download the stage3 files from a different mirror.
   --password password
-    Set the root password to "password".
+    Set the root password. The root password is randomized by default.
   --partition-type gpt
     The type of a partition table to create: gpt or msdos.
-  --partition-block-size 1048576
+  --partition-alignment 1048576
     The block size used for partition alignment.
   -p, --phase phase1,phase2,...
     A comma-separated list of which phases to run:
@@ -70,6 +72,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.0.1.0
+  Gentoo Install 2.1.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

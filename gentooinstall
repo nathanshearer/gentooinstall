@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.0.1.0"
+VERSION="2.1.0.0"
 
 function gentooinstall_architecture
 {
@@ -47,30 +47,6 @@ function gentooinstall_architecture
 	else
 		echo "unknown"
 	fi
-}
-
-# \brief Convert an image to a new Gentoo installation
-function gentooinstall_assimilate
-{
-	#give the user a chance to cancel the install
-	if $WARNING; then
-		echo "Installing Gentoo at \"$DESTINATION_ROOT\"..."
-		echo
-		echo "We are the Gentoo Community."
-		sleep 2
-		echo "Power your systems and surrender your chips."
-		sleep 2
-		echo "Your ideological and technological distinctiveness will be added to our own."
-		sleep 2
-		echo "You will adapt to serve us."
-		sleep 2
-		echo "Resistance is futile."
-		sleep 2
-		echo
-	fi
-	
-	echo "not complete"
-	exit 1
 }
 
 # \brief Ensures dependencies are present
@@ -196,6 +172,7 @@ function gentooinstall_detect_swap_uuid
 		findfs "UUID=$DESTINATION_SWAP_UUID" >/dev/null 2>/dev/null
 		if [ $? -ne 0 ]; then
 			echo "error: detect_swap_uuid: Unable to detect the UUID of the swap partition"
+			DESTINATION_SWAP_UUID=""
 			return 1
 		fi
 	fi
@@ -212,8 +189,8 @@ function gentooinstall_help
 	echo "  $CODENAME [options]"
 	echo
 	echo "Options:"
-	#echo "  --assimilate"
-	#echo "    Convert the destination into Gentoo Linux."
+	echo "  --assimilate"
+	echo "    Convert the destination into Gentoo Linux."
 	echo "  -a, --architecture x86_64"
 	echo "    Which guest architecture to install. Default is the host architecture."
 	echo "    Supported architectures are:"
@@ -242,7 +219,7 @@ function gentooinstall_help
 	echo "  --mirror http://distfiles.gentoo.org"
 	echo "    Download the stage3 files from a different mirror."
 	echo "  --password password"
-	echo "    Set the root password to \"password\"."
+	echo "    Set the root password. The root password is randomized by default."
 	echo "  --partition-type gpt"
 	echo "    The type of a partition table to create: gpt or msdos."
 	echo "  --partition-alignment $((1024*1024))"
@@ -283,6 +260,42 @@ function gentooinstall_help
 	echo "  $COPYRIGHT"
 	echo "  Licensed under $LICENSE"
 	exit
+}
+
+function gentooinstall_main
+{
+	echo "Installing Gentoo Linux..."
+	echo "  Destination: $DESTINATION"
+	echo "  Architecture: $ARCHITECTURE"
+	if $WARNING; then
+		#give the user a chance to cancel the install
+		printf "Press CTRL+C to cancel...\n"
+		printf "10"
+		sleep 1; printf '\n'
+		printf "9   This is Gentoo Linux."
+		sleep 1; printf '\n'
+		printf "8"
+		sleep 1; printf '\n'
+		printf "7   You will be assimilated."
+		sleep 1; printf '\n'
+		printf "6"
+		sleep 1; printf '\n'
+		printf "5   Your ideological and technological distinctiveness will be added to our own."
+		sleep 1; printf '\n'
+		printf "4"
+		sleep 1; printf '\n'
+		printf "3   You will adapt to serve us."
+		sleep 1; printf '\n'
+		printf "2"
+		sleep 1; printf '\n'
+		printf "1   Resistance is futile."
+		sleep 1; printf '\n'
+		printf "0\n"
+	fi
+	gentooinstall_phases
+	if [ $? -eq 0 ]; then
+		gentooinstall_news
+	fi
 }
 
 # \brief Iterate through each phase
@@ -405,12 +418,12 @@ function gentooinstall_phase_bootloader_bios_lilo
 
 	# some hard drives use characters in their id that causes lilo to break when using boot=/dev/disk/by-id
 	# this symlink is a workaround for that problem
-	BOOTBYID=$(find -L "$DESTINATION_ROOT/dev/disk/by-id" -samefile "$DESTINATION_BOOT_DEVICE_PARENT" | head -n 1)
+	BOOTBYID=$($PREFIX find -L "/dev/disk/by-id" -samefile "$DESTINATION_BOOT_DEVICE_PARENT" | head -n 1)
 	if [ ! -b "$BOOTBYID" ]; then
 		echo "warning: the disk ID for \"$DESTINATION_BOOT_DEVICE_PARENT\" could not be identified. Using \"$DESTINATION_BOOT_DEVICE_PARENT\" instead."
 		BOOTBYID="$DESTINATION_BOOT_DEVICE_PARENT"
 	fi
-	ln -s "$BOOTBYID" /etc/lilo.conf.bootdevice
+	ln -s "$BOOTBYID" "$DESTINATION_ROOT/etc/lilo.conf.bootdevice"
 
 	echo "default=Gentoo" >"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "prompt" >>"$DESTINATION_ROOT/etc/lilo.conf"
@@ -646,13 +659,20 @@ function gentooinstall_phase_fstab
 	
 	gentooinstall_detect_boot_uuid || return
 	gentooinstall_detect_root_uuid || return
-	gentooinstall_detect_swap_uuid || return
+	gentooinstall_detect_swap_uuid
+	if [ $? -ne 0 ]; then
+		echo -n "warning: continuing fstab phase without swap... "
+	fi
 	
 	mv -n "$DESTINATION_ROOT/etc/fstab" "$DESTINATION_ROOT/etc/fstab.example"
 	echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >"$DESTINATION_ROOT/etc/fstab"
 	echo "UUID=$DESTINATION_BOOT_UUID  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
-	echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	if [ "$DESTINATION_SWAP_UUID" != "" ]; then
+		echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	else
+		echo "#UUID=  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	fi
 	
 	echo "done."
 }
@@ -715,6 +735,8 @@ function gentooinstall_phase_mount
 
 function gentooinstall_phase_partition
 {
+	gentooinstall_check_dependencies mkfs.vfat
+
 	if [ ! -b "$DESTINATION" ]; then
 		echo "error: \"$DESTINATION\" is not a block device"
 		return 1
@@ -880,10 +902,24 @@ function gentooinstall_phase_resolvconf
 
 function gentooinstall_phase_stage3extract
 {
+	if $ASSIMILATE; then
+		printf "Moving existing files to \"$DESTINATION_ROOT/root/oldroot\"... "
+		mkdir "$DESTINATION_ROOT"/oldroot || return
+		find "$DESTINATION_ROOT" -mindepth 1 -maxdepth 1 -not -regex '.*/boot' -and -not -regex '.*/oldroot' -and -not -regex '.*/stage3.*' -exec mv {} "$DESTINATION_ROOT"/oldroot \; || return
+		mkdir -m 700 "$DESTINATION_ROOT"/root || return
+		mv "$DESTINATION_ROOT"/oldroot "$DESTINATION_ROOT"/root || return
+		printf "done.\n"
+	fi
 	local STAGE3=$(ls "$DESTINATION_ROOT"/stage3-*.tar.* | head -n 1)
-	echo -n "Extracting \"$STAGE3\" to \"$DESTINATION_ROOT\"... "
+	printf "Extracting \"$STAGE3\" to \"$DESTINATION_ROOT\"... "
 	tar xpf "$STAGE3" -C "$DESTINATION_ROOT" --xattrs --numeric-owner || return
-	echo "done."
+	printf "done.\n"
+	if $ASSIMILATE; then
+		printf "Copying fstab and kernel modules from oldroot... "
+		cp -af "$DESTINATION_ROOT"/root/oldroot/etc/fstab "$DESTINATION_ROOT"/etc || return
+		cp -af "$DESTINATION_ROOT"/root/oldroot/lib/modules "$DESTINATION_ROOT"/lib || return
+		printf "done.\n"
+	fi
 }
 
 # \brief Download the latest stage3 tarball
@@ -891,9 +927,14 @@ function gentooinstall_phase_stage3download
 {
 	echo -n "Downloading the stage 3 tarball... "
 	mkdir -p "$DESTINATION_ROOT"
+	local DESTINATION_ROOT_FREE=$(df -B 1 --output=avail "$DESTINATION_ROOT" | tail -n 1)
+	if [ "$DESTINATION_ROOT_FREE" -lt 8589934592 ]; then
+		echo "error: the destination requires 8GiB of free space for installation."
+		return 1
+	fi
 	if [ "$STAGE3" = "latest" ]; then
 		case "$ARCHITECTURE" in
-			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'ppc'|'ppc64'|'alpha')
+			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'aarch64'|'ppc'|'ppc64'|'alpha')
 				case "$ARCHITECTURE" in
 					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686.txt" -O-| tail -n 1 | cut -d " " -f 1);;
@@ -904,6 +945,7 @@ function gentooinstall_phase_stage3download
 					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'aarch64') LATEST=$(wget --quiet "$MIRROR/releases/arm64/autobuilds/latest-stage3-arm64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc64') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'alpha') LATEST=$(wget --quiet "$MIRROR/releases/alpha/autobuilds/latest-stage3-alpha.txt" -O-| tail -n 1 | cut -d " " -f 1);;
@@ -920,6 +962,7 @@ function gentooinstall_phase_stage3download
 					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
@@ -935,21 +978,15 @@ function gentooinstall_phase_stage3download
 					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 				esac
 				;;
-			"aarch64")
-				BASENAME=$(wget "$MIRROR/experimental/arm64/" -O - 2>/dev/null | grep -E -o "\"stage3-arm64-[0-9]+.tar.bz2\"" | sed -r -e "s/\"(.*)\"/\1/" | tail -n 1)
-				STAGE3_FILE="$DESTINATION_ROOT/$BASENAME"
-				wget -q "$MIRROR/experimental/arm64/$BASENAME" -O "$STAGE3_FILE"
-				STAGE3_HASHES="$DESTINATION_ROOT/$BASENAME.DIGESTS"
-				wget -q "$MIRROR/experimental/arm64/$BASENAME.DIGESTS" -O "$STAGE3_HASHES"
-				;;
 			*)
 				echo "error: unsupported architecture: $ARCHITECTURE"
-				exit 1;;
+				return 1;;
 		esac
 	else
 		BASENAME=$(basename "$STAGE3")
@@ -996,7 +1033,7 @@ function gentooinstall_phase_stage3signature
 	fi
 
 	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	local STAGE3_SIGNATURE=$(ls "$DESTINATION_ROOT/stage3-"*".tar."*".DIGESTS.asc" | head -n 1)
+	local STAGE3_SIGNATURE=$(find "$DESTINATION_ROOT" -maxdepth 1 -name "stage3*DIGESTS*" | head -n 1)
 	gentooinstall_quiet gpg --refresh-keys
 	gentooinstall_quiet gpg --verify "$STAGE3_SIGNATURE"
 	if [ $? -ne 0 ]; then
@@ -1095,9 +1132,8 @@ PARTITION_ALIGNMENT=$((1024*1024))
 PARTITION_TYPE=gpt
 MIRROR="http://distfiles.gentoo.org"
 NICE=0
-PASSWORD="password"
+PASSWORD=$(dd if=/dev/urandom bs=512 count=1 2>/dev/null | base64 | head -c 32)
 PHASES="stage3download,stage3signature,stage3hash,stage3extract,stage3delete,dynamictranslation,resolvconf,procsysdev,portage,timezone,locale,update,password"
-PHASES_DEFAULT=false
 PORTAGE="latest"
 STAGE3="latest"
 THREADS=$(grep -c processor /proc/cpuinfo)
@@ -1105,7 +1141,7 @@ TIMEZONE="UTC"
 TMP="/tmp"
 VERBOSITY=0
 NEWS=true
-WARNING=true
+WARNING=false
 
 #------------------------------------------------------------------------------
 # command line arguments
@@ -1115,13 +1151,14 @@ if [ $# -eq 0 ]; then
 	exit 1
 fi
 
-THIS="$0"
+PHASES_DEFAULT=true
 while [ $# -ne 0 ]; do
 	case "$1" in
-		#"--assimilate")
-		#	ASSIMILATE=true
-		#	shift 2
-		#	;;
+		"--assimilate")
+			ASSIMILATE=true
+			WARNING=true
+			shift
+			;;
 		"-a"|"--architecture")
 			ARCHITECTURE="$2"
 			shift 2
@@ -1171,7 +1208,7 @@ while [ $# -ne 0 ]; do
 			shift 2
 			;;
 		"-p"|"--phase")
-			PHASES_DEFAULT=true
+			PHASES_DEFAULT=false
 			PHASES="$2"
 			shift 2
 			;;
@@ -1204,10 +1241,8 @@ fi
 if test -f "$DESTINATION"; then
 	DESTINATION_FILE="$DESTINATION"
 	DESTINATION=$(losetup -j "$DESTINATION_FILE" | cut -d ':' -f 1)
-	if [ -b "$DESTINATION" ]; then
-		echo "using existing loop device for \"$DESTINATION_FILE\" which is \"$DESTINATION\"."
-	else
-		losetup -f "$DESTINATION_FILE"
+	if [ ! -b "$DESTINATION" ]; then
+		losetup --partscan -f "$DESTINATION_FILE"
 		if [ $? -ne 0 ]; then
 			echo "error: unable to setup loop device for \"$DESTINATION_FILE\""
 			exit 1
@@ -1219,8 +1254,11 @@ if test -f "$DESTINATION"; then
 		fi
 	fi
 fi
-if test -b "$DESTINATION" && ! $PHASES_DEFAULT; then
-	PHASES="partition,mount,$PHASES"
+if test -b "$DESTINATION" && $PHASES_DEFAULT; then
+	PHASES="mount,$PHASES"
+fi
+if test -b "$DESTINATION" && $PHASES_DEFAULT && ! $ASSIMILATE; then
+	PHASES="partition,$PHASES"
 fi
 if [ ! -b "$DESTINATION" ]; then
 	DESTINATION_ROOT="$DESTINATION"
@@ -1245,10 +1283,4 @@ fi
 #------------------------------------------------------------------------------
 # begin execution
 
-echo "Installing Gentoo Linux..."
-echo "  Destination: $DESTINATION"
-echo "  Architecture: $ARCHITECTURE"
-gentooinstall_phases
-if [ $? -eq 0 ]; then
-	gentooinstall_news
-fi
+gentooinstall_main
