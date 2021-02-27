@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.1.0.0"
+VERSION="2.1.1.0"
 
 function gentooinstall_architecture
 {
@@ -655,26 +655,31 @@ function gentooinstall_phase_dynamictranslation
 
 function gentooinstall_phase_fstab
 {
-	echo -n "Updating /etc/fstab... "
+	echo "Updating /etc/fstab..."
 	
-	gentooinstall_detect_boot_uuid || return
+	gentooinstall_detect_boot_uuid
+	if [ $? -ne 0 ]; then
+		echo "warning: continuing fstab phase without a separate boot filesystem..."
+	fi
 	gentooinstall_detect_root_uuid || return
 	gentooinstall_detect_swap_uuid
 	if [ $? -ne 0 ]; then
-		echo -n "warning: continuing fstab phase without swap... "
+		echo "warning: continuing fstab phase without swap..."
 	fi
 	
 	mv -n "$DESTINATION_ROOT/etc/fstab" "$DESTINATION_ROOT/etc/fstab.example"
 	echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >"$DESTINATION_ROOT/etc/fstab"
-	echo "UUID=$DESTINATION_BOOT_UUID  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	if [ "$DESTINATION_BOOT_UUID" != "" ]; then
+		echo "UUID=$DESTINATION_BOOT_UUID  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	else
+		echo "#UUID=  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+	fi
 	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
 	if [ "$DESTINATION_SWAP_UUID" != "" ]; then
 		echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	else
 		echo "#UUID=  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	fi
-	
-	echo "done."
 }
 
 function gentooinstall_phase_kernel
