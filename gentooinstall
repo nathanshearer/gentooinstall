@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.1.1.0"
+VERSION="2.2.0.0"
 
 function gentooinstall_architecture
 {
@@ -674,7 +674,7 @@ function gentooinstall_phase_fstab
 	else
 		echo "#UUID=  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	fi
-	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
+	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime,nodiratime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
 	if [ "$DESTINATION_SWAP_UUID" != "" ]; then
 		echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	else
@@ -920,9 +920,19 @@ function gentooinstall_phase_stage3extract
 	tar xpf "$STAGE3" -C "$DESTINATION_ROOT" --xattrs --numeric-owner || return
 	printf "done.\n"
 	if $ASSIMILATE; then
-		printf "Copying fstab and kernel modules from oldroot... "
+		printf "Copying fstab from oldroot... "
 		cp -af "$DESTINATION_ROOT"/root/oldroot/etc/fstab "$DESTINATION_ROOT"/etc || return
+		printf "done.\n"
+		printf "Copying kernel modules from oldroot... "
 		cp -af "$DESTINATION_ROOT"/root/oldroot/lib/modules "$DESTINATION_ROOT"/lib || return
+		printf "done.\n"
+		printf "Copying firmware from oldroot... "
+		if [ -d "$DESTINATION_ROOT"/root/oldroot/lib/firmware ]; then
+			cp -af "$DESTINATION_ROOT"/root/oldroot/lib/firmware "$DESTINATION_ROOT"/lib || return
+		fi
+		if [ -d "$DESTINATION_ROOT"/root/oldroot/usr/lib/firmware ]; then
+			cp -af "$DESTINATION_ROOT"/root/oldroot/usr/lib/firmware "$DESTINATION_ROOT"/lib || return
+		fi
 		printf "done.\n"
 	fi
 }
@@ -1248,6 +1258,7 @@ if test -f "$DESTINATION"; then
 	DESTINATION=$(losetup -j "$DESTINATION_FILE" | cut -d ':' -f 1)
 	if [ ! -b "$DESTINATION" ]; then
 		losetup --partscan -f "$DESTINATION_FILE"
+		sleep 5 # wait for kernel to scan partition table and filesystem signatures
 		if [ $? -ne 0 ]; then
 			echo "error: unable to setup loop device for \"$DESTINATION_FILE\""
 			exit 1
