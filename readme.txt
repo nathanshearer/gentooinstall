@@ -19,9 +19,9 @@ Options:
       bios-lilo
       uefi-refind  default
   -d, --destination /mnt/gentoo
-    Install into this location. If a directory is provided, then install into
+    Install into this destination. If a directory is provided, then install into
     that directory. If an empty block device is provided, then it will be
-    partitioned and mounted. Default mountpoint is "/mnt/gentoo".
+    partitioned and mounted. Default destination is "/mnt/gentoo".
   --destination-root-partuuid 00000000-0000-0000-0000-000000000000
     Specify the destination root partuuid instead of automatically detecting it.
   -h, --help
@@ -55,7 +55,8 @@ Options:
       portage             default      Install Portage
       timezone            default      Set the timezone
       locale              default      Set the locale
-      kernel                           Install and compile the kernel
+      kernel                           Compile and install the kernel
+      initrd                           Create an initrd
       fstab                            Add boot, root, and swap entries
       bootloader                       Configure and install a bootloader
       update              default      Update the world
@@ -72,6 +73,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.2.0.0
+  Gentoo Install 2.3.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0
