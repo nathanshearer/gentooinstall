@@ -14,10 +14,10 @@ Options:
       armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,
       ppc, ppc64,
       alpha
-  --bootloader uefi-refind
+  --bootloader BOOTLOADER
     Which bootloader to install on the boot device:
-      bios-lilo
-      uefi-refind  default
+      bios-lilo    default when bios is detected
+      uefi-refind  default when uefi is detected
   -d, --destination /mnt/gentoo
     Install into this destination. If a directory is provided, then install into
     that directory. If an empty block device is provided, then it will be
@@ -55,9 +55,9 @@ Options:
       portage             default      Install Portage
       timezone            default      Set the timezone
       locale              default      Set the locale
+      fstab                            Add boot, root, and swap entries
       kernel                           Compile and install the kernel
       initrd                           Create an initrd
-      fstab                            Add boot, root, and swap entries
       bootloader                       Configure and install a bootloader
       update              default      Update the world
       password            default      Set the root password
@@ -73,6 +73,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.3.0.0
+  Gentoo Install 2.3.1.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

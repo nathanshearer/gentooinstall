@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.3.0.0"
+VERSION="2.3.1.0"
 
 function gentooinstall_architecture
 {
@@ -198,10 +198,10 @@ function gentooinstall_help
 	echo "      armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,"
 	echo "      ppc, ppc64,"
 	echo "      alpha"
-	echo "  --bootloader uefi-refind"
+	echo "  --bootloader BOOTLOADER"
 	echo "    Which bootloader to install on the boot device:"
-	echo "      bios-lilo"
-	echo "      uefi-refind  default"
+	echo "      bios-lilo    default when bios is detected"
+	echo "      uefi-refind  default when uefi is detected"
 	echo "  -d, --destination /mnt/gentoo"
 	echo "    Install into this destination. If a directory is provided, then install into"
 	echo "    that directory. If an empty block device is provided, then it will be"
@@ -239,9 +239,9 @@ function gentooinstall_help
 	echo "      portage             default      Install Portage"
 	echo "      timezone            default      Set the timezone"
 	echo "      locale              default      Set the locale"
+	echo "      fstab                            Add boot, root, and swap entries"
 	echo "      kernel                           Compile and install the kernel"
 	echo "      initrd                           Create an initrd"
-	echo "      fstab                            Add boot, root, and swap entries"
 	echo "      bootloader                       Configure and install a bootloader"
 	echo "      update              default      Update the world"
 	echo "      password            default      Set the root password"
@@ -319,9 +319,9 @@ function gentooinstall_phases
 			"portage")            gentooinstall_phase_portage;;
 			"timezone")           gentooinstall_phase_timezone;;
 			"locale")             gentooinstall_phase_locale;;
+			"fstab")              gentooinstall_phase_fstab;;
 			"kernel")             gentooinstall_phase_kernel;;
 			"initrd")             gentooinstall_phase_initrd;;
-			"fstab")              gentooinstall_phase_fstab;;
 			"bootloader")         gentooinstall_phase_bootloader;;
 			"update")             gentooinstall_phase_update;;
 			"password")           gentooinstall_phase_password;;
@@ -360,6 +360,16 @@ function gentooinstall_news
 
 function gentooinstall_phase_bootloader
 {
+	if [ "$BOOTLOADER" = "" ]; then
+		printf "Detected boot mode: "
+		if [ -e /sys/firmware/efi ]; then
+			printf "UEFI\n"
+			BOOTLOADER="uefi-refind"
+		else
+			printf "BIOS\n"
+			BOOTLOADER="bios-lilo"
+		fi
+	fi
 	case "$BOOTLOADER" in
 		"bios-lilo")
 			gentooinstall_phase_bootloader_bios_lilo || return
@@ -425,7 +435,7 @@ function gentooinstall_phase_bootloader_bios_lilo
 		echo "warning: the disk ID for \"$DESTINATION_BOOT_DEVICE_PARENT\" could not be identified. Using \"$DESTINATION_BOOT_DEVICE_PARENT\" instead."
 		BOOTBYID="$DESTINATION_BOOT_DEVICE_PARENT"
 	fi
-	ln -s "$BOOTBYID" "$DESTINATION_ROOT/etc/lilo.conf.bootdevice"
+	ln -f -s "$BOOTBYID" "$DESTINATION_ROOT/etc/lilo.conf.bootdevice"
 
 	local INITRD=$(find "$DESTINATION_ROOT/boot" -name "initramfs*$KERNEL_VERSION*" -printf '%P\n' | head -n 1)
 	if [ "$INITRD" != "" ]; then
@@ -1164,7 +1174,7 @@ function gentooinstall_quiet
 
 ARCHITECTURE=$(gentooinstall_architecture)
 ASSIMILATE=false
-BOOTLOADER=uefi-refind
+BOOTLOADER=
 CHROOTARCH=""
 DEBUG=false
 DESTINATION="/mnt/gentoo"
