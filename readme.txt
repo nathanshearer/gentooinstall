@@ -73,6 +73,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.3.1.0
+  Gentoo Install 2.3.2.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

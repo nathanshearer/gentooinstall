@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.3.1.0"
+VERSION="2.3.2.0"
 
 function gentooinstall_architecture
 {
@@ -962,15 +962,15 @@ function gentooinstall_phase_stage3download
 		case "$ARCHITECTURE" in
 			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'aarch64'|'ppc'|'ppc64'|'alpha')
 				case "$ARCHITECTURE" in
-					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'x86_64') LATEST=$(wget --quiet "$MIRROR/releases/amd64/autobuilds/latest-stage3-amd64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv4') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv4tl.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv5') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv5tel.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'x86_64') LATEST=$(wget --quiet "$MIRROR/releases/amd64/autobuilds/latest-stage3-amd64-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv4') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv4tl-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv5') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv5tel-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'aarch64') LATEST=$(wget --quiet "$MIRROR/releases/arm64/autobuilds/latest-stage3-arm64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc64') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
