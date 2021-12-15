@@ -12,6 +12,7 @@ Options:
     Supported architectures are:
       i486, i686, x86_64,
       armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,
+      riscv,
       ppc, ppc64,
       alpha
   --bootloader BOOTLOADER
@@ -73,6 +74,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.3.2.0
+  Gentoo Install 2.4.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.3.2.0"
+VERSION="2.4.0.0"
 
 function gentooinstall_architecture
 {
@@ -28,6 +28,8 @@ function gentooinstall_architecture
 		fi
 	elif uname -m | grep -q "aarch64"; then
 		echo "aarch64"
+	elif uname -m | grep -q "riscv64"; then
+		echo "riscv64"
 	elif uname -m | grep -qx "i386"; then
 		echo "i386"
 	elif uname -m | grep -qx "i686"; then
@@ -196,6 +198,7 @@ function gentooinstall_help
 	echo "    Supported architectures are:"
 	echo "      i486, i686, x86_64,"
 	echo "      armv4, armv5, armv6, armv6hf, armv7, armv7hf, aarch64,"
+	echo "      riscv,"
 	echo "      ppc, ppc64,"
 	echo "      alpha"
 	echo "  --bootloader BOOTLOADER"
@@ -573,6 +576,16 @@ function gentooinstall_phase_dynamictranslation
 	echo " Success."
 	
 	case "$ARCH_GUEST" in
+		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+			echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
+			if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+				echo " Failed."
+				echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
+				return 3
+			fi
+			echo " Success."
+			;;
 		"aarch64")
 			echo -n "Verifying that \"/usr/bin/qemu-aarch64\" is a static binary..."
 			if ! file /usr/bin/qemu-aarch64 | grep 'statically linked' >/dev/null; then
@@ -583,11 +596,11 @@ function gentooinstall_phase_dynamictranslation
 			fi
 			echo " Success."
 			;;
-		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
-			echo -n "Verifying that \"/usr/bin/qemu-arm\" is a static binary..."
-			if ! file /usr/bin/qemu-arm | grep 'statically linked' >/dev/null; then
+		"riscv")
+			echo -n "Verifying that \"/usr/bin/qemu-riscv64\" is a static binary..."
+			if ! file /usr/bin/qemu-riscv64 | grep 'statically linked' >/dev/null; then
 				echo " Failed."
-				echo "error: the file \"/usr/bin/qemu-arm\" is not a static binary"
+				echo "error: the file \"/usr/bin/qemu-riscv64\" is not a static binary"
 				echo "hint: on Gentoo this can be fixed by enabling the static-user use flag for app-emulation/qemu"
 				return 3
 			fi
@@ -629,25 +642,20 @@ function gentooinstall_phase_dynamictranslation
 			;;
 	esac
 	
-	echo -n "Testing dynamic binary translation..."
-	if ! "$DESTINATION_ROOT"/bin/busybox true >/dev/null 2>/dev/null; then
-		echo " Failed."
-		echo "error: dynamic translation test failed for \"$DESTINATION_ROOT/bin/busybox test\""
-		echo "hint: try running the same test manually before continuing: \"$DESTINATION_ROOT/bin/busybox true\""
-		echo "hint: on a gentoo host try starting the qemu-binfmt service"
-		return 4
-	fi
-	echo " Success."
-	
 	case "$ARCH_GUEST" in
+		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
+			echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-arm "$DESTINATION_ROOT"/usr/bin
+			echo " Done."
+			;;
 		"aarch64")
 			echo -n "Copying \"/usr/bin/qemu-aarch64\" into the installation to enable dynamic binary translation..."
 			cp /usr/bin/qemu-aarch64 "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
-		"armv4" | "armv5" | "armv6" | "armv6hf" | "armv7" | "armv7hf")
-			echo -n "Copying \"/usr/bin/qemu-arm\" into the installation to enable dynamic binary translation..."
-			cp /usr/bin/qemu-arm "$DESTINATION_ROOT"/usr/bin
+		"riscv")
+			echo -n "Copying \"/usr/bin/qemu-riscv64\" into the installation to enable dynamic binary translation..."
+			cp /usr/bin/qemu-riscv64 "$DESTINATION_ROOT"/usr/bin
 			echo " Done."
 			;;
 		"ppc")
@@ -670,6 +678,16 @@ function gentooinstall_phase_dynamictranslation
 			return 1
 			;;
 	esac
+	
+	echo -n "Testing dynamic binary translation..."
+	if ! chroot "$DESTINATION_ROOT" /bin/true >/dev/null 2>/dev/null; then
+		echo " Failed."
+		echo "error: dynamic translation test failed for \"chroot $DESTINATION_ROOT /bin/true\""
+		echo "hint: try running the same test manually before continuing: \"$chroot $DESTINATION_ROOT /bin/true\""
+		echo "hint: on a gentoo host try starting the qemu-binfmt service"
+		return 4
+	fi
+	echo " Success."
 }
 
 function gentooinstall_phase_fstab
@@ -960,7 +978,7 @@ function gentooinstall_phase_stage3download
 	fi
 	if [ "$STAGE3" = "latest" ]; then
 		case "$ARCHITECTURE" in
-			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'aarch64'|'ppc'|'ppc64'|'alpha')
+			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'aarch64'|'riscv'|'ppc'|'ppc64'|'alpha')
 				case "$ARCHITECTURE" in
 					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
@@ -972,6 +990,7 @@ function gentooinstall_phase_stage3download
 					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'aarch64') LATEST=$(wget --quiet "$MIRROR/releases/arm64/autobuilds/latest-stage3-arm64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'riscv') LATEST=$(wget --quiet "$MIRROR/releases/riscv/autobuilds/latest-stage3-rv64_lp64d-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'ppc64') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
 					'alpha') LATEST=$(wget --quiet "$MIRROR/releases/alpha/autobuilds/latest-stage3-alpha.txt" -O-| tail -n 1 | cut -d " " -f 1);;
@@ -989,6 +1008,7 @@ function gentooinstall_phase_stage3download
 					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
+					'riscv') wget -q "$MIRROR/releases/riscv/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
 					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
@@ -1005,6 +1025,7 @@ function gentooinstall_phase_stage3download
 					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
+					'riscv') wget -q "$MIRROR/releases/riscv/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
 					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
