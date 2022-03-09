@@ -70,10 +70,10 @@ Options:
     Which timezone to configure.
 
 Examples:
-  gentooinstall -d /dev/sdzz -t "Canada/Mountain"
+  gentooinstall -d /dev/sdzz -t Canada/Mountain
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.4.0.0
+  Gentoo Install 2.4.1.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

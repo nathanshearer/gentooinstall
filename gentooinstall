@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.4.0.0"
+VERSION="2.4.1.0"
 
 function gentooinstall_architecture
 {
@@ -256,7 +256,7 @@ function gentooinstall_help
 	echo "    Which timezone to configure."
 	echo
 	echo "Examples:"
-	echo "  $CODENAME -d /dev/sdzz -t \"Canada/Mountain\""
+	echo "  $CODENAME -d /dev/sdzz -t Canada/Mountain"
 	echo "  $CODENAME -p kernel,fstab,bootloader"
 	echo
 	echo "Version:"
@@ -296,7 +296,7 @@ function gentooinstall_main
 		sleep 1; printf '\n'
 		printf "0\n"
 	fi
-	gentooinstall_phases
+	gentooinstall_phases || return
 	if [ $? -eq 0 ]; then
 		gentooinstall_news
 	fi
@@ -441,9 +441,6 @@ function gentooinstall_phase_bootloader_bios_lilo
 	ln -f -s "$BOOTBYID" "$DESTINATION_ROOT/etc/lilo.conf.bootdevice"
 
 	local INITRD=$(find "$DESTINATION_ROOT/boot" -name "initramfs*$KERNEL_VERSION*" -printf '%P\n' | head -n 1)
-	if [ "$INITRD" != "" ]; then
-		local LILO_INITRD="initrd=$INITRD "
-	fi
 
 	echo "default=Gentoo" >"$DESTINATION_ROOT/etc/lilo.conf"
 	echo "prompt" >>"$DESTINATION_ROOT/etc/lilo.conf"
@@ -742,7 +739,7 @@ function gentooinstall_phase_kernel
 	FEATURES="-pid-sandbox" $PREFIX emerge -uq app-arch/cpio || return
 	FEATURES="-pid-sandbox" $PREFIX emerge -uq app-portage/gentoolkit || return
 	FEATURES="-pid-sandbox" $PREFIX emerge -1q sys-kernel/gentoo-sources || return
-	FEATURES="-pid-sandbox" $PREFIX emerge -n =$(equery -q l -F \$cpv sys-kernel/gentoo-sources) || return
+	FEATURES="-pid-sandbox" USE="symlink" $PREFIX emerge -n =$(equery -q l -F \$cpv sys-kernel/gentoo-sources) || return
 	if [ ! -f "$DESTINATION_ROOT/usr/src/linux/.config" ]; then
 		if [ -f /proc/config.gz ]; then
 			gzip -cd /proc/config.gz > "$DESTINATION_ROOT/usr/src/linux/.config"
@@ -955,9 +952,9 @@ function gentooinstall_phase_procsysdev
 function gentooinstall_phase_resolvconf
 {
 	if [ ! -f "$DESTINATION_ROOT/etc/resolv.conf" ]; then
-		echo "Adding 8.8.8.8 and 8.8.4.4 to /etc/resolv.conf"
-		echo "nameserver 8.8.8.8" >>"$DESTINATION_ROOT/etc/resolv.conf"
-		echo "nameserver 8.8.4.4" >>"$DESTINATION_ROOT/etc/resolv.conf"
+		echo "Adding 1.1.1.1 and 1.0.0.1 to /etc/resolv.conf"
+		echo "nameserver 1.1.1.1" >>"$DESTINATION_ROOT/etc/resolv.conf"
+		echo "nameserver 1.0.0.1" >>"$DESTINATION_ROOT/etc/resolv.conf"
 	fi
 }
 
@@ -980,65 +977,81 @@ function gentooinstall_phase_stage3download
 		case "$ARCHITECTURE" in
 			'i486'|'i686'|'x86_64'|'armv4'|'armv5'|'armv6'|'armv6hf'|'armv7'|'armv7hf'|'aarch64'|'riscv'|'ppc'|'ppc64'|'alpha')
 				case "$ARCHITECTURE" in
-					'i486') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i486-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'i686') LATEST=$(wget --quiet "$MIRROR/releases/x86/autobuilds/latest-stage3-i686-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'x86_64') LATEST=$(wget --quiet "$MIRROR/releases/amd64/autobuilds/latest-stage3-amd64-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv4') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv4tl-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv5') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv5tel-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv6hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv6j_hardfp-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'armv7hf') LATEST=$(wget --quiet "$MIRROR/releases/arm/autobuilds/latest-stage3-armv7a_hardfp-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'aarch64') LATEST=$(wget --quiet "$MIRROR/releases/arm64/autobuilds/latest-stage3-arm64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'riscv') LATEST=$(wget --quiet "$MIRROR/releases/riscv/autobuilds/latest-stage3-rv64_lp64d-openrc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'ppc') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'ppc64') LATEST=$(wget --quiet "$MIRROR/releases/ppc/autobuilds/latest-stage3-ppc64.txt" -O-| tail -n 1 | cut -d " " -f 1);;
-					'alpha') LATEST=$(wget --quiet "$MIRROR/releases/alpha/autobuilds/latest-stage3-alpha.txt" -O-| tail -n 1 | cut -d " " -f 1);;
+					'i486')
+						REMOTE_PATH="$MIRROR/releases/x86/autobuilds/current-stage3-i486-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-i486-openrc-[^"]+)".*/\1/p')
+						;;
+					'i686')
+						REMOTE_PATH="$MIRROR/releases/x86/autobuilds/current-stage3-i686-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-i686-openrc-[^"]+)".*/\1/p')
+						;;
+					'x86_64')
+						REMOTE_PATH="$MIRROR/releases/amd64/autobuilds/current-stage3-amd64-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-amd64-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv4')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv4tl-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv4tl-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv5')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv5tel-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv5tel-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv6')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv6j-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv6j-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv6hf')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv6j_hardfp-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv6j_hardfp-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv7')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv7a-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv7a-openrc-[^"]+)".*/\1/p')
+						;;
+					'armv7hf')
+						REMOTE_PATH="$MIRROR/releases/arm/autobuilds/current-stage3-armv7a_hardfp-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-armv7a_hardfp-openrc-[^"]+)".*/\1/p')
+						;;
+					'aarch64')
+						REMOTE_PATH="$MIRROR/releases/arm64/autobuilds/current-stage3-arm64-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-arm64-openrc-[^"]+)".*/\1/p')
+						;;
+					'riscv')
+						REMOTE_PATH="$MIRROR/releases/riscv/autobuilds/current-stage3-rv64_lp64d-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-rv64_lp64d-openrc-[^"]+)".*/\1/p')
+						;;
+					'ppc')
+						REMOTE_PATH="$MIRROR/releases/ppc/autobuilds/current-stage3-ppc-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-ppc-openrc-[^"]+)".*/\1/p')
+						;;
+					'ppc64')
+						REMOTE_PATH="$MIRROR/releases/ppc/autobuilds/current-stage3-ppc64-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-ppc64-openrc-[^"]+)".*/\1/p')
+						;;
+					'alpha')
+						REMOTE_PATH="$MIRROR/releases/alpha/autobuilds/current-stage3-alpha-openrc/"
+						REMOTE_FILES=$(wget "$REMOTE_PATH" -O- 2> /dev/null | sed -r -n -e 's/^.*"(stage3-alpha-openrc-[^"]+)".*/\1/p')
+						;;
 				esac
-				BASENAME=$(basename "$LATEST")
-				STAGE3_FILE="$DESTINATION_ROOT/$BASENAME"
-				case "$ARCHITECTURE" in
-					'i486') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'i686') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'x86_64') wget -q "$MIRROR/releases/amd64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv4') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv5') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'riscv') wget -q "$MIRROR/releases/riscv/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST" -O "$STAGE3_FILE";;
-				esac
-				STAGE3_HASHES="$DESTINATION_ROOT/$BASENAME.DIGESTS.asc"
-				case "$ARCHITECTURE" in
-					'i486') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'i686') wget -q "$MIRROR/releases/x86/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'x86_64') wget -q "$MIRROR/releases/amd64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv4') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv5') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv6hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'armv7hf') wget -q "$MIRROR/releases/arm/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'aarch64') wget -q "$MIRROR/releases/arm64/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'riscv') wget -q "$MIRROR/releases/riscv/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'ppc') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'ppc64') wget -q "$MIRROR/releases/ppc/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-					'alpha') wget -q "$MIRROR/releases/alpha/autobuilds/$LATEST.DIGESTS.asc" -O "$STAGE3_HASHES";;
-				esac
+				if [ $(printf %s "$REMOTE_FILES" | wc -l) = 0 ]; then
+					echo "error: unable to locate stage3 files at \"$REMOTE_PATH\""
+					return 1
+				fi
+				for F in $REMOTE_FILES; do
+					wget -q -N -P "$DESTINATION_ROOT" "${REMOTE_PATH}${F}"
+					if [ $? -ne 0 ]; then
+						echo "error: failed to download \"${REMOTE_PATH}${F}\""
+						return 1
+					fi
+				done
 				;;
 			*)
 				echo "error: unsupported architecture: $ARCHITECTURE"
 				return 1;;
 		esac
 	else
-		BASENAME=$(basename "$STAGE3")
-		wget -q "$STAGE3" -O "$DESTINATION_ROOT/$BASENAME.tar.gz"
-		wget -q "$STAGE3.DIGESTS.asc" -O "$DESTINATION_ROOT/$BASENAME.DIGESTS.asc"
+		wget -q -N -P "$DESTINATION_ROOT" "$STAGE3"
 	fi
 	echo "done."
 }
@@ -1112,7 +1125,7 @@ function gentooinstall_phase_stage3signature
 	fi
 
 	echo -n "Verifying the cryptographic signature of the stage3 hashes... "
-	local STAGE3_SIGNATURE=$(find "$DESTINATION_ROOT" -maxdepth 1 -name "stage3*DIGESTS*" | head -n 1)
+	local STAGE3_SIGNATURE=$(find "$DESTINATION_ROOT" -maxdepth 1 -name "stage3*asc*" | head -n 1)
 	gentooinstall_quiet gpg --refresh-keys
 	gentooinstall_quiet gpg --verify "$STAGE3_SIGNATURE"
 	if [ $? -ne 0 ]; then
