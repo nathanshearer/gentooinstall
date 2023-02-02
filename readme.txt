@@ -19,6 +19,7 @@ Options:
     Which bootloader to install on the boot device:
       bios-lilo    default when bios is detected
       uefi-refind  default when uefi is detected
+      uefi-stub
   -d, --destination /mnt/gentoo
     Install into this destination. If a directory is provided, then install into
     that directory. If an empty block device is provided, then it will be
@@ -74,6 +75,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.4.1.0
+  Gentoo Install 2.4.1.1
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0

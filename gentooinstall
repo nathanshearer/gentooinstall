@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.4.1.0"
+VERSION="2.4.1.1"
 
 function gentooinstall_architecture
 {
@@ -205,6 +205,7 @@ function gentooinstall_help
 	echo "    Which bootloader to install on the boot device:"
 	echo "      bios-lilo    default when bios is detected"
 	echo "      uefi-refind  default when uefi is detected"
+	echo "      uefi-stub"
 	echo "  -d, --destination /mnt/gentoo"
 	echo "    Install into this destination. If a directory is provided, then install into"
 	echo "    that directory. If an empty block device is provided, then it will be"
@@ -380,6 +381,9 @@ function gentooinstall_phase_bootloader
 		"uefi-refind")
 			gentooinstall_phase_bootloader_uefi_refind || return
 			;;
+		"uefi-stub")
+			gentooinstall_phase_bootloader_uefi_stub || return
+			;;
 		*)
 			echo "error: unsupported bootloader \"$BOOTLOADER\""
 			return 1
@@ -412,9 +416,9 @@ function gentooinstall_phase_bootloader_bios_lilo
 	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
 	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
 
-	KERNEL="$DESTINATION_ROOT/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
+	KERNEL=$(find "$DESTINATION_ROOT/usr/src/linux/" -name bzImage | tail -n 1)
 	if [ ! -f "$KERNEL" ]; then
-		echo "error: A kernel was not found at \"$KERNEL\""
+		echo "error: A kernel bzImage file was not found in \"$DESTINATION_ROOT/usr/src/linux/\""
 		return 1
 	fi
 
@@ -451,7 +455,7 @@ function gentooinstall_phase_bootloader_bios_lilo
 	if [ "$INITRD" != "" ]; then
 		echo "	initrd=/boot/$INITRD" >>"$DESTINATION_ROOT/etc/lilo.conf"
 	fi
-	echo "	append=\"ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID rootwait\"" >>"$DESTINATION_ROOT/etc/lilo.conf"
+	echo "	append=\"ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID $KERNEL_CMDLINE\"" >>"$DESTINATION_ROOT/etc/lilo.conf"
 
 	gentooinstall_quiet $PREFIX lilo -b "$BOOTBYID"
 }
@@ -481,9 +485,9 @@ function gentooinstall_phase_bootloader_uefi_refind
 	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
 	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
 
-	KERNEL="$DESTINATION_ROOT/usr/src/linux/arch/$ARCHITECTURE/boot/bzImage"
+	KERNEL=$(find "$DESTINATION_ROOT/usr/src/linux/" -name bzImage | tail -n 1)
 	if [ ! -f "$KERNEL" ]; then
-		echo "error: A kernel was not found at \"$KERNEL\""
+		echo "error: A kernel bzImage file was not found in \"$DESTINATION_ROOT/usr/src/linux/\""
 		return 1
 	fi
 
@@ -511,12 +515,66 @@ function gentooinstall_phase_bootloader_uefi_refind
 		local REFIND_INITRD="initrd=$INITRD "
 	fi
 	echo "timeout 10" >"$REFIND_CONFIG"
-	echo "scanfor manual" >"$REFIND_CONFIG"
+	echo "scanfor manual" >>"$REFIND_CONFIG"
+	echo "default_selection Gentoo" >>"$REFIND_CONFIG"
 	echo "menuentry Gentoo {" >>"$REFIND_CONFIG"
 	echo "	icon $REFIND_OS_ICON" >>"$REFIND_CONFIG"
 	echo "	loader $KERNEL_FILENAME" >>"$REFIND_CONFIG"
-	echo "	options \"${REFIND_INITRD}ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID rootwait\"" >>"$REFIND_CONFIG"
+	echo "	options \"${REFIND_INITRD}ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID $KERNEL_CMDLINE\"" >>"$REFIND_CONFIG"
 	echo "}" >>"$REFIND_CONFIG"
+}
+
+function gentooinstall_phase_bootloader_uefi_stub
+{
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo "Installing the kernel as a UEFI stub bootable application..."
+
+	gentooinstall_detect_root_partuuid || return
+
+	if [ ! -f "$DESTINATION_ROOT/usr/src/linux/.config" ]; then
+		gentooinstall_phase_kernel
+	fi
+
+	# enable UEFI stub support and set the kernel command-line parameters
+	sed -i -r 's/^(# )?CONFIG_EFI[ =].*$/CONFIG_EFI=y/' "$DESTINATION_ROOT/usr/src/linux/.config"
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" olddefconfig
+	sed -i -r 's/^(# )?CONFIG_EFI_STUB[ =].*$/CONFIG_EFI_STUB=y/' "$DESTINATION_ROOT/usr/src/linux/.config"
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" olddefconfig
+	sed -i -r 's/^(# )?CONFIG_CMDLINE_BOOL[ =].*$/CONFIG_CMDLINE_BOOL=y/' "$DESTINATION_ROOT/usr/src/linux/.config"
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" olddefconfig
+	sed -i -r "s/^(# )?CONFIG_CMDLINE[ =].*\$/CONFIG_CMDLINE=\"${CMDLINE_INITRD}ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID $KERNEL_CMDLINE\"/" "$DESTINATION_ROOT/usr/src/linux/.config"
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" olddefconfig
+
+	KERNEL_MAKEFILE="$DESTINATION_ROOT/usr/src/linux/Makefile"
+	if [ ! -f "$KERNEL_MAKEFILE" ]; then
+		echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+		return 1
+	fi
+	KERNEL_VERSION=$(grep ^VERSION "$KERNEL_MAKEFILE" | sed -r 's/VERSION *= *//')
+	local INITRD=$(find "$DESTINATION_ROOT/boot" -maxdepth 1 -name "initramfs*$KERNEL_VERSION*.img" -printf '%P\n' | head -n 1)
+	if [ "$INITRD" != "" ]; then
+		$PREFIX xz --decompress --stdout /boot/"$INITRD" > "$DESTINATION_ROOT/usr/src/$INITRD.cpio"
+		local CONFIG_INITRD="\\/usr\\/src\\/$(printf "$INITRD" | sed -r 's/\//\\\//g').cpio"
+		sed -i -r "s/^(# )?CONFIG_INITRAMFS_SOURCE[ =].*$/CONFIG_INITRAMFS_SOURCE=\"$CONFIG_INITRD\"/" "$DESTINATION_ROOT/usr/src/linux/.config"
+		gentooinstall_quiet $PREFIX make -C "/usr/src/linux" olddefconfig
+	fi
+
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" -j $THREADS || return
+	gentooinstall_quiet $PREFIX make -C "/usr/src/linux" modules_install || return
+
+	KERNEL=$(find "$DESTINATION_ROOT/usr/src/linux/" -name bzImage | tail -n 1)
+	if [ ! -f "$KERNEL" ]; then
+		echo "error: A kernel bzImage file was not found in \"$DESTINATION_ROOT/usr/src/linux/\""
+		return 1
+	fi
+
+	mkdir -p "$DESTINATION_ROOT/boot/EFI/boot"
+	cp -f "$KERNEL" "$DESTINATION_ROOT/boot/EFI/boot/bootx64.efi"
 }
 
 function gentooinstall_phase_dynamictranslation
@@ -736,20 +794,9 @@ function gentooinstall_phase_kernel
 		PREFIX=""
 	fi
 
-	FEATURES="-pid-sandbox" $PREFIX emerge -uq app-arch/cpio || return
-	FEATURES="-pid-sandbox" $PREFIX emerge -uq app-portage/gentoolkit || return
-	FEATURES="-pid-sandbox" $PREFIX emerge -1q sys-kernel/gentoo-sources || return
-	FEATURES="-pid-sandbox" USE="symlink" $PREFIX emerge -n =$(equery -q l -F \$cpv sys-kernel/gentoo-sources) || return
-	if [ ! -f "$DESTINATION_ROOT/usr/src/linux/.config" ]; then
-		if [ -f /proc/config.gz ]; then
-			gzip -cd /proc/config.gz > "$DESTINATION_ROOT/usr/src/linux/.config"
-			$PREFIX make -C "/usr/src/linux" olddefconfig
-		else
-			$PREFIX make -C "/usr/src/linux" defconfig
-		fi
-	fi
-	$PREFIX make -C "/usr/src/linux" -j $THREADS || return
-	$PREFIX make -C "/usr/src/linux" modules_install || return
+	echo -n "Installing the Gentoo Distribution Kernel... "
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uq sys-kernel/gentoo-kernel || return
+	echo "done."
 }
 
 function gentooinstall_phase_locale
@@ -813,9 +860,9 @@ function gentooinstall_phase_partition
 	local DEVICE_SIZE=$(blockdev --getsize64 "$DESTINATION")
 	local DEVICE_SIZE_BLOCKS=$(($DEVICE_SIZE/$PARTITION_ALIGNMENT))
 	
-	local BOOT_SIZE_BLOCKS=$((512*1024*1024/$PARTITION_ALIGNMENT))
-	if [ $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((512*1024*1024)) ]; then
-		BOOT_SIZE_BLOCKS=$((512*1024*1024/$PARTITION_ALIGNMENT + 1))
+	local BOOT_SIZE_BLOCKS=$((1024*1024*1024/$PARTITION_ALIGNMENT))
+	if [ $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((1024*1024*1024)) ]; then
+		BOOT_SIZE_BLOCKS=$((1024*1024*1024/$PARTITION_ALIGNMENT + 1))
 	fi
 	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$PARTITION_ALIGNMENT))
 	if [ $(($SWAP_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((4096*1024*1024)) ]; then
@@ -1220,6 +1267,7 @@ DESTINATION_BOOT_UUID=""
 DESTINATION_ROOT_PARTUUID=""
 DESTINATION_ROOT_UUID=""
 DESTINATION_SWAP_UUID=""
+KERNEL_CMDLINE="rootwait net.ifnames=0"
 PARTITION_ALIGNMENT=$((1024*1024))
 PARTITION_TYPE=gpt
 MIRROR="http://distfiles.gentoo.org"
