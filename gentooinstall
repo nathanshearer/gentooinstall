@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.4.1.1"
+VERSION="2.5.0.0"
 
 function gentooinstall_architecture
 {
@@ -162,20 +162,18 @@ function gentooinstall_detect_root_uuid
 	fi
 }
 
-function gentooinstall_detect_swap_uuid
+function gentooinstall_detect_swap
 {
 	gentooinstall_check_dependencies findfs findmnt lsblk parted
 	
-	if [ "$DESTINATION_SWAP_UUID" = "" ]; then
+	if [ "$DESTINATION_SWAP" = "" ]; then
 		local DEVICE_ROOT=$(findmnt -n -o SOURCE "$DESTINATION_ROOT")
 		local DEVICE_ROOT_PARENT=$(lsblk -s -l -n -o NAME "$DEVICE_ROOT" | tail -n 1)
 		local SWAP_INDEX=$(parted -s -m "/dev/$DEVICE_ROOT_PARENT" p | grep linux-swap | cut -d : -f 1)
-		DESTINATION_SWAP_UUID=$(lsblk -f -n -o UUID "/dev/$DEVICE_ROOT_PARENT"*$SWAP_INDEX)
-		findfs "UUID=$DESTINATION_SWAP_UUID" >/dev/null 2>/dev/null
+		DESTINATION_SWAP=$(lsblk -f -n -o UUID "/dev/$DEVICE_ROOT_PARENT"*$SWAP_INDEX)
+		findfs "UUID=$DESTINATION_SWAP" >/dev/null 2>/dev/null
 		if [ $? -ne 0 ]; then
-			echo "error: detect_swap_uuid: Unable to detect the UUID of the swap partition"
-			DESTINATION_SWAP_UUID=""
-			return 1
+			DESTINATION_SWAP=""
 		fi
 	fi
 }
@@ -203,7 +201,8 @@ function gentooinstall_help
 	echo "      alpha"
 	echo "  --bootloader BOOTLOADER"
 	echo "    Which bootloader to install on the boot device:"
-	echo "      bios-lilo    default when bios is detected"
+	echo "      bios-grub    default when bios is detected"
+	echo "      bios-lilo"
 	echo "      uefi-refind  default when uefi is detected"
 	echo "      uefi-stub"
 	echo "  -d, --destination /mnt/gentoo"
@@ -371,10 +370,13 @@ function gentooinstall_phase_bootloader
 			BOOTLOADER="uefi-refind"
 		else
 			printf "BIOS\n"
-			BOOTLOADER="bios-lilo"
+			BOOTLOADER="bios-grub"
 		fi
 	fi
 	case "$BOOTLOADER" in
+		"bios-grub")
+			gentooinstall_phase_bootloader_bios_grub || return
+			;;
 		"bios-lilo")
 			gentooinstall_phase_bootloader_bios_lilo || return
 			;;
@@ -389,6 +391,56 @@ function gentooinstall_phase_bootloader
 			return 1
 			;;
 	esac
+}
+
+function gentooinstall_phase_bootloader_bios_grub
+{
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo "Installing the grub bootloader..."
+
+	gentooinstall_detect_boot_device_parent || return
+	gentooinstall_detect_root_partuuid || return
+
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uq sys-boot/grub
+
+	KERNEL_MAKEFILE="$DESTINATION_ROOT/usr/src/linux/Makefile"
+	if [ ! -f "$KERNEL_MAKEFILE" ]; then
+		echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+		return 1
+	fi
+	KERNEL_VERSION=$(grep ^VERSION "$KERNEL_MAKEFILE" | sed -r 's/VERSION *= *//')
+	KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL "$KERNEL_MAKEFILE" | sed -r 's/PATCHLEVEL *= *//')
+	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
+	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
+
+	KERNEL=$(find "$DESTINATION_ROOT/usr/src/linux/" -name bzImage | tail -n 1)
+	if [ ! -f "$KERNEL" ]; then
+		echo "error: A kernel bzImage file was not found in \"$DESTINATION_ROOT/usr/src/linux/\""
+		return 1
+	fi
+
+	KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
+	if [ "$KERNEL_PATCHLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
+	fi
+	if [ "$KERNEL_SUBLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
+	fi
+	if [ "$KERNEL_EXTRAVERSION" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
+	fi
+	cp -f "$KERNEL" "$DESTINATION_ROOT/boot/$KERNEL_FILENAME"
+	KERNEL="$KERNEL_FILENAME"
+
+	local INITRD=$(find "$DESTINATION_ROOT/boot" -name "initramfs*$KERNEL_VERSION*" -printf '%P\n' | head -n 1)
+
+	gentooinstall_quiet $PREFIX grub-install --target=i386-pc --force $DESTINATION_BOOT_DEVICE_PARENT || return
+	gentooinstall_quiet $PREFIX grub-mkconfig -o /boot/grub/grub.cfg || return
 }
 
 function gentooinstall_phase_bootloader_bios_lilo
@@ -754,10 +806,6 @@ function gentooinstall_phase_fstab
 		echo "warning: continuing fstab phase without a separate boot filesystem..."
 	fi
 	gentooinstall_detect_root_uuid || return
-	gentooinstall_detect_swap_uuid
-	if [ $? -ne 0 ]; then
-		echo "warning: continuing fstab phase without swap..."
-	fi
 	
 	mv -n "$DESTINATION_ROOT/etc/fstab" "$DESTINATION_ROOT/etc/fstab.example"
 	echo "# <fs>  <mountpoint>  <type>  <opts>  <dump/pass>" >"$DESTINATION_ROOT/etc/fstab"
@@ -767,8 +815,14 @@ function gentooinstall_phase_fstab
 		echo "#UUID=  /boot  vfat  noauto,noatime  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	fi
 	echo "UUID=$DESTINATION_ROOT_UUID  /  ext4  noatime,nodiratime  0 1" >>"$DESTINATION_ROOT/etc/fstab"
-	if [ "$DESTINATION_SWAP_UUID" != "" ]; then
-		echo "UUID=$DESTINATION_SWAP_UUID  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+
+	gentooinstall_detect_swap
+	if [ "$DESTINATION_SWAP" != "" ]; then
+		if [ -f "$DESTINATION_SWAP" ]; then
+			echo "$DESTINATION_SWAP  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+		else
+			echo "UUID=$DESTINATION_SWAP  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
+		fi
 	else
 		echo "#UUID=  none  swap  sw  0 0" >>"$DESTINATION_ROOT/etc/fstab"
 	fi
@@ -864,12 +918,8 @@ function gentooinstall_phase_partition
 	if [ $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((1024*1024*1024)) ]; then
 		BOOT_SIZE_BLOCKS=$((1024*1024*1024/$PARTITION_ALIGNMENT + 1))
 	fi
-	local SWAP_SIZE_BLOCKS=$((4096*1024*1024/$PARTITION_ALIGNMENT))
-	if [ $(($SWAP_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) -lt $((4096*1024*1024)) ]; then
-		SWAP_SIZE_BLOCKS=$((4096*1024*1024/$PARTITION_ALIGNMENT + 1))
-	fi
 	# leave one block at the beginning for the partition table, and one block at the end for rounding errors
-	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - $SWAP_SIZE_BLOCKS - 1 ))
+	local ROOT_SIZE_BLOCKS=$(($DEVICE_SIZE_BLOCKS - 1 - $BOOT_SIZE_BLOCKS - 1 ))
 	
 	echo "Creating a partition table and destination filesystems:"
 	echo "  Device: $DESTINATION"
@@ -884,7 +934,6 @@ function gentooinstall_phase_partition
 	echo "  Partition Alignment: $PARTITION_ALIGNMENT Bytes"
 	echo "  Boot Partition Size: $(($BOOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
 	echo "  Root Partition Size: $(($ROOT_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
-	echo "  Swap Partition Size: $(($SWAP_SIZE_BLOCKS*$PARTITION_ALIGNMENT)) Bytes"
 	echo "Press CTRL+C to cancel"
 	for SECONDS in $(seq 10 -1 1); do
 		printf "\r${SECONDS} ... "
@@ -928,34 +977,6 @@ function gentooinstall_phase_partition
 	sleep 5
 	DESTINATION_ROOT_UUID=$(blkid -s UUID -o value "$DESTINATION_2")
 	echo "done."
-	echo -n "Creating the swap partition... "
-	parted --script "$DESTINATION" mkpart primary linux-swap $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$ROOT_SIZE_BLOCKS))b $(($PARTITION_ALIGNMENT + $PARTITION_ALIGNMENT*$BOOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$ROOT_SIZE_BLOCKS + $PARTITION_ALIGNMENT*$SWAP_SIZE_BLOCKS - 1))b
-	partprobe "$DESTINATION"
-	sleep 5
-	if [ -b "$DESTINATION"p3 ]; then
-		DESTINATION_3="$DESTINATION"p3
-	elif [ -b "$DESTINATION"3 ]; then
-		DESTINATION_3="$DESTINATION"3
-	else
-		echo "error: Unable to locate third partition on \"$DESTINATION\""
-		return 5
-	fi
-	gentooinstall_quiet mkswap "$DESTINATION_3" || return
-	sleep 5
-	DESTINATION_SWAP_UUID=$(blkid -s UUID -o value "$DESTINATION_3")
-	echo "done."
-	local MEMORY_PHYSICAL=$(free -b | grep Mem | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
-	local MEMORY_SWAP=$(free -b | grep Swap | sed -r 's/[^0-9]+([0-9]+) .*/\1/')
-	local MEMORY_TOTAL=$(($MEMORY_PHYSICAL+$MEMORY_SWAP))
-	if [ $MEMORY_TOTAL -lt $((1024*1024*1024*4)) ]; then
-		echo "Physical memory available: $MEMORY_PHYSICAL Bytes"
-		echo "Swap memory available: $MEMORY_SWAP Bytes"
-		echo "Total memory available: $MEMORY_TOTAL Bytes"
-		echo "Less than 4GiB of memory detected"
-		echo -n "Activating the destination swap partition... "
-		swapon "$DESTINATION_3"
-		echo "done."
-	fi
 }
 
 function gentooinstall_phase_portage
@@ -972,7 +993,7 @@ function gentooinstall_phase_portage
 		gentooinstall_quiet $PREFIX emerge --sync || return
 	else
 		$PREFIX wget "$PORTAGE" -O /tmp/portage.tar.bz2 || return
-		$PREFIX tar xjpf /tmp/portage.tar.bz2 -C /usr || return
+		$PREFIX tar xpf /tmp/portage.tar.bz2 -C /usr --xattrs --xattrs-include='*.*' --numeric-owner || return
 	fi
 	$PREFIX mkdir -p /etc/portage/package.accept_keywords
 	$PREFIX touch /etc/portage/package.accept_keywords/zzzz-autounmask-write
@@ -1115,7 +1136,7 @@ function gentooinstall_phase_stage3extract
 	fi
 	local STAGE3=$(ls "$DESTINATION_ROOT"/stage3-*.tar.* | head -n 1)
 	printf "Extracting \"$STAGE3\" to \"$DESTINATION_ROOT\"... "
-	tar xpf "$STAGE3" -C "$DESTINATION_ROOT" --xattrs --numeric-owner || return
+	tar xpf "$STAGE3" -C "$DESTINATION_ROOT" --xattrs --xattrs-include='*.*' --numeric-owner || return
 	printf "done.\n"
 	if $ASSIMILATE; then
 		printf "Copying fstab from oldroot... "
@@ -1266,7 +1287,7 @@ DESTINATION_BOOT_DEVICE_PARENT=""
 DESTINATION_BOOT_UUID=""
 DESTINATION_ROOT_PARTUUID=""
 DESTINATION_ROOT_UUID=""
-DESTINATION_SWAP_UUID=""
+DESTINATION_SWAP=""
 KERNEL_CMDLINE="rootwait net.ifnames=0"
 PARTITION_ALIGNMENT=$((1024*1024))
 PARTITION_TYPE=gpt
