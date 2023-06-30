@@ -4,7 +4,7 @@ NAME="Gentoo Install"
 CODENAME="gentooinstall"
 COPYRIGHT="Copyright (C) 2016 Nathan Shearer"
 LICENSE="GNU General Public License 2.0"
-VERSION="2.5.0.0"
+VERSION="2.6.0.0"
 
 function gentooinstall_architecture
 {
@@ -203,6 +203,7 @@ function gentooinstall_help
 	echo "    Which bootloader to install on the boot device:"
 	echo "      bios-grub    default when bios is detected"
 	echo "      bios-lilo"
+	echo "      uefi-grub"
 	echo "      uefi-refind  default when uefi is detected"
 	echo "      uefi-stub"
 	echo "  -d, --destination /mnt/gentoo"
@@ -380,6 +381,9 @@ function gentooinstall_phase_bootloader
 		"bios-lilo")
 			gentooinstall_phase_bootloader_bios_lilo || return
 			;;
+		"uefi-grub")
+			gentooinstall_phase_bootloader_uefi_grub || return
+			;;
 		"uefi-refind")
 			gentooinstall_phase_bootloader_uefi_refind || return
 			;;
@@ -510,6 +514,55 @@ function gentooinstall_phase_bootloader_bios_lilo
 	echo "	append=\"ro root=PARTUUID=$DESTINATION_ROOT_PARTUUID $KERNEL_CMDLINE\"" >>"$DESTINATION_ROOT/etc/lilo.conf"
 
 	gentooinstall_quiet $PREFIX lilo -b "$BOOTBYID"
+}
+
+function gentooinstall_phase_bootloader_uefi_grub
+{
+	gentooinstall_phase_procsysdev
+	local PREFIX="$CHROOTARCH chroot $DESTINATION_ROOT"
+	if [ "$DESTINATION" = '/' ]; then
+		PREFIX=""
+	fi
+
+	echo "Installing the grub bootloader..."
+
+	gentooinstall_detect_root_partuuid || return
+
+	FEATURES="-pid-sandbox" gentooinstall_quiet $PREFIX emerge -uq sys-boot/grub
+
+	KERNEL_MAKEFILE="$DESTINATION_ROOT/usr/src/linux/Makefile"
+	if [ ! -f "$KERNEL_MAKEFILE" ]; then
+		echo "error: A kernel makefile was not found at \"$KERNEL_MAKEFILE\""
+		return 1
+	fi
+	KERNEL_VERSION=$(grep ^VERSION "$KERNEL_MAKEFILE" | sed -r 's/VERSION *= *//')
+	KERNEL_PATCHLEVEL=$(grep ^PATCHLEVEL "$KERNEL_MAKEFILE" | sed -r 's/PATCHLEVEL *= *//')
+	KERNEL_SUBLEVEL=$(grep ^SUBLEVEL "$KERNEL_MAKEFILE" | sed -r 's/SUBLEVEL *= *//')
+	KERNEL_EXTRAVERSION=$(grep ^EXTRAVERSION "$KERNEL_MAKEFILE" | sed -r 's/EXTRAVERSION *= *-*//')
+
+	KERNEL=$(find "$DESTINATION_ROOT/usr/src/linux/" -name bzImage | tail -n 1)
+	if [ ! -f "$KERNEL" ]; then
+		echo "error: A kernel bzImage file was not found in \"$DESTINATION_ROOT/usr/src/linux/\""
+		return 1
+	fi
+
+	KERNEL_FILENAME="vmlinuz-$KERNEL_VERSION"
+	if [ "$KERNEL_PATCHLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_PATCHLEVEL"
+	fi
+	if [ "$KERNEL_SUBLEVEL" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME.$KERNEL_SUBLEVEL"
+	fi
+	if [ "$KERNEL_EXTRAVERSION" != "" ]; then
+		KERNEL_FILENAME="$KERNEL_FILENAME-$KERNEL_EXTRAVERSION"
+	fi
+	cp -f "$KERNEL" "$DESTINATION_ROOT/boot/$KERNEL_FILENAME"
+	KERNEL="$KERNEL_FILENAME"
+
+	local INITRD=$(find "$DESTINATION_ROOT/boot" -name "initramfs*$KERNEL_VERSION*" -printf '%P\n' | head -n 1)
+
+	gentooinstall_quiet $PREFIX grub-install --target=x86_64-efi --efi-directory=/boot --removable || return
+	gentooinstall_quiet $PREFIX grub-mkconfig -o /boot/grub/grub.cfg || return
 }
 
 function gentooinstall_phase_bootloader_uefi_refind

@@ -19,6 +19,7 @@ Options:
     Which bootloader to install on the boot device:
       bios-grub    default when bios is detected
       bios-lilo
+      uefi-grub
       uefi-refind  default when uefi is detected
       uefi-stub
   -d, --destination /mnt/gentoo
@@ -76,6 +77,6 @@ Examples:
   gentooinstall -p kernel,fstab,bootloader
 
 Version:
-  Gentoo Install 2.5.0.0
+  Gentoo Install 2.6.0.0
   Copyright (C) 2016 Nathan Shearer
   Licensed under GNU General Public License 2.0
